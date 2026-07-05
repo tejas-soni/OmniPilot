@@ -1,14 +1,17 @@
 package com.omnipilot.settings
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.ComboBox
-import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.AnActionButton
+import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
+import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.FormBuilder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -16,11 +19,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.awt.BorderLayout
 import java.awt.Component
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.util.UUID
-import javax.swing.BoxLayout
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -28,6 +30,7 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
+import javax.swing.table.DefaultTableModel
 
 class OmniPilotSettingsComponent {
     val panel: JPanel
@@ -35,7 +38,6 @@ class OmniPilotSettingsComponent {
     val providerCombo = ComboBox<ProviderConfig>()
     val providerNameText = JBTextField()
     val baseUrlText = JBTextField()
-    val modelNameText = JBTextField()
     val apiKeyText = JBPasswordField()
     
     val enableInlineCompletionsCheckbox = JBCheckBox("Enable Inline Completions (Ghost Text)")
@@ -44,13 +46,25 @@ class OmniPilotSettingsComponent {
 
     private val addBtn = JButton("Add")
     private val removeBtn = JButton("Remove")
-    private val fetchModelsBtn = JButton("Fetch Models")
     
     var currentProviders = mutableListOf<ProviderConfig>()
     var apiKeyCache = mutableMapOf<String, String>()
     
     private var isUpdatingUi = false
     private var lastSelectedId: String? = null
+
+    // Models Table
+    private val modelsTableModel = object : DefaultTableModel(arrayOf("Enabled", "Model Name"), 0) {
+        override fun getColumnClass(columnIndex: Int): Class<*> {
+            return if (columnIndex == 0) java.lang.Boolean::class.java else java.lang.String::class.java
+        }
+        override fun isCellEditable(row: Int, column: Int): Boolean {
+            return true
+        }
+    }
+    private val modelsTable = JBTable(modelsTableModel).apply {
+        columnModel.getColumn(0).maxWidth = 80
+    }
 
     init {
         val topPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -60,17 +74,34 @@ class OmniPilotSettingsComponent {
             add(removeBtn)
         }
 
-        val modelsPanel = JPanel(BorderLayout()).apply {
-            add(modelNameText, BorderLayout.CENTER)
-            add(fetchModelsBtn, BorderLayout.EAST)
-        }
+        val decorator = ToolbarDecorator.createDecorator(modelsTable)
+            .setAddAction {
+                modelsTableModel.addRow(arrayOf(true, ""))
+                val row = modelsTableModel.rowCount - 1
+                modelsTable.editCellAt(row, 1)
+                modelsTable.editorComponent?.requestFocus()
+            }
+            .setRemoveAction {
+                val selectedRows = modelsTable.selectedRows
+                for (i in selectedRows.indices.reversed()) {
+                    modelsTableModel.removeRow(selectedRows[i])
+                }
+            }
+            .addExtraAction(object : AnActionButton("Fetch Models", AllIcons.Actions.Refresh) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    fetchModels()
+                }
+            })
+
+        val modelsPanel = decorator.createPanel()
+        modelsPanel.preferredSize = Dimension(400, 200)
 
         panel = FormBuilder.createFormBuilder()
             .addComponent(topPanel)
             .addLabeledComponent(JBLabel("Provider Name: "), providerNameText, 1, false)
             .addLabeledComponent(JBLabel("API Base URL: "), baseUrlText, 1, false)
-            .addLabeledComponent(JBLabel("Models (comma-separated): "), modelsPanel, 1, false)
             .addLabeledComponent(JBLabel("API Key: "), apiKeyText, 1, false)
+            .addLabeledComponent(JBLabel("Models: "), modelsPanel, 1, true)
             .addSeparator()
             .addComponent(enableInlineCompletionsCheckbox, 1)
             .addComponent(autoApproveEditsCheckbox, 1)
@@ -125,65 +156,74 @@ class OmniPilotSettingsComponent {
                 providerCombo.selectedIndex = 0
             }
         }
+    }
 
-        fetchModelsBtn.addActionListener {
-            val baseUrl = baseUrlText.text.trim().removeSuffix("/")
-            val apiKey = String(apiKeyText.password).trim().ifEmpty {
-                val currentId = lastSelectedId
-                if (currentId != null) {
-                    apiKeyCache[currentId] ?: CredentialManager.getApiKey(currentId) ?: ""
-                } else ""
-            }
-            
-            if (baseUrl.isEmpty() || apiKey.isEmpty()) {
-                Messages.showErrorDialog("Please enter both Base URL and API Key to fetch models.", "Missing Details")
-                return@addActionListener
-            }
+    private fun fetchModels() {
+        if (modelsTable.isEditing) {
+            modelsTable.cellEditor.stopCellEditing()
+        }
+        
+        val baseUrl = baseUrlText.text.trim().removeSuffix("/")
+        val apiKey = String(apiKeyText.password).trim().ifEmpty {
+            val currentId = lastSelectedId
+            if (currentId != null) {
+                apiKeyCache[currentId] ?: CredentialManager.getApiKey(currentId) ?: ""
+            } else ""
+        }
+        
+        if (baseUrl.isEmpty() || apiKey.isEmpty()) {
+            Messages.showErrorDialog("Please enter both Base URL and API Key to fetch models.", "Missing Details")
+            return
+        }
 
-            fetchModelsBtn.isEnabled = false
-            fetchModelsBtn.text = "Fetching..."
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url("$baseUrl/models")
+                    .header("Authorization", "Bearer $apiKey")
+                    .build()
 
-            ApplicationManager.getApplication().executeOnPooledThread {
-                try {
-                    val client = OkHttpClient()
-                    val request = Request.Builder()
-                        .url("$baseUrl/models")
-                        .header("Authorization", "Bearer $apiKey")
-                        .build()
-
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            throw Exception("HTTP ${response.code}: ${response.body?.string()}")
-                        }
-                        
-                        val bodyStr = response.body?.string() ?: throw Exception("Empty response body")
-                        val jsonObj = Json { ignoreUnknownKeys = true }.parseToJsonElement(bodyStr).jsonObject
-                        val dataArray = jsonObj["data"]?.jsonArray ?: throw Exception("Invalid JSON structure: missing 'data' array")
-                        
-                        val fetchedModels = dataArray.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content }
-                        
-                        if (fetchedModels.isEmpty()) {
-                            throw Exception("No models found in the response")
-                        }
-
-                        ApplicationManager.getApplication().invokeLater {
-                            val dialog = ModelSelectionDialog(fetchedModels)
-                            if (dialog.showAndGet()) {
-                                val selected = dialog.getSelectedModels()
-                                if (selected.isNotEmpty()) {
-                                    modelNameText.text = selected.joinToString(", ")
-                                }
-                            }
-                            fetchModelsBtn.isEnabled = true
-                            fetchModelsBtn.text = "Fetch Models"
-                        }
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw Exception("HTTP ${response.code}: ${response.body?.string()}")
                     }
-                } catch (e: Exception) {
+                    
+                    val bodyStr = response.body?.string() ?: throw Exception("Empty response body")
+                    val jsonObj = Json { ignoreUnknownKeys = true }.parseToJsonElement(bodyStr).jsonObject
+                    val dataArray = jsonObj["data"]?.jsonArray ?: throw Exception("Invalid JSON structure: missing 'data' array")
+                    
+                    val fetchedModels = dataArray.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content }
+                    
+                    if (fetchedModels.isEmpty()) {
+                        throw Exception("No models found in the response")
+                    }
+
                     ApplicationManager.getApplication().invokeLater {
-                        Messages.showErrorDialog("Failed to fetch models:\n${e.message}\n\nPlease add them manually.", "Fetch Error")
-                        fetchModelsBtn.isEnabled = true
-                        fetchModelsBtn.text = "Fetch Models"
+                        val existingModels = mutableSetOf<String>()
+                        for (i in 0 until modelsTableModel.rowCount) {
+                            val modelName = modelsTableModel.getValueAt(i, 1) as? String ?: continue
+                            if (modelName.isNotBlank()) existingModels.add(modelName.trim())
+                        }
+                        
+                        var addedCount = 0
+                        for (fm in fetchedModels) {
+                            if (!existingModels.contains(fm)) {
+                                modelsTableModel.addRow(arrayOf(false, fm))
+                                addedCount++
+                            }
+                        }
+                        
+                        if (addedCount == 0) {
+                            Messages.showInfoMessage("No new models found. All fetched models are already in the list.", "Fetch Models")
+                        } else {
+                            Messages.showInfoMessage("Successfully fetched and added $addedCount new models.", "Fetch Models")
+                        }
                     }
+                }
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    Messages.showErrorDialog("Failed to fetch models:\n${e.message}\n\nPlease add them manually.", "Fetch Error")
                 }
             }
         }
@@ -196,10 +236,23 @@ class OmniPilotSettingsComponent {
         val selectedId = lastSelectedId ?: return
         val selected = currentProviders.find { it.id == selectedId } ?: return
         
+        if (modelsTable.isEditing) {
+            modelsTable.cellEditor.stopCellEditing()
+        }
+
         selected.name = providerNameText.text.trim()
         selected.baseUrl = baseUrlText.text.trim()
-        selected.models = modelNameText.text.trim()
         apiKeyCache[selectedId] = String(apiKeyText.password).trim()
+        
+        val selectedModels = mutableListOf<String>()
+        for (i in 0 until modelsTableModel.rowCount) {
+            val enabled = modelsTableModel.getValueAt(i, 0) as? Boolean ?: false
+            val modelName = modelsTableModel.getValueAt(i, 1) as? String ?: ""
+            if (enabled && modelName.isNotBlank()) {
+                selectedModels.add(modelName.trim())
+            }
+        }
+        selected.models = selectedModels.joinToString(", ")
     }
 
     private fun loadSelectionToUi() {
@@ -209,15 +262,21 @@ class OmniPilotSettingsComponent {
             lastSelectedId = selected.id
             providerNameText.text = selected.name
             baseUrlText.text = selected.baseUrl
-            modelNameText.text = selected.models
             
-            // Load key from cache, or fallback to CredentialManager if not cached yet
+            modelsTableModel.rowCount = 0
+            if (selected.models.isNotBlank()) {
+                val parsed = selected.models.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                for (m in parsed) {
+                    modelsTableModel.addRow(arrayOf(true, m))
+                }
+            }
+            
             apiKeyText.text = apiKeyCache[selected.id] ?: CredentialManager.getApiKey(selected.id) ?: ""
         } else {
             lastSelectedId = null
             providerNameText.text = ""
             baseUrlText.text = ""
-            modelNameText.text = ""
+            modelsTableModel.rowCount = 0
             apiKeyText.text = ""
         }
         isUpdatingUi = false
@@ -249,47 +308,5 @@ class OmniPilotSettingsComponent {
         }
         isUpdatingUi = false
         loadSelectionToUi()
-    }
-}
-
-private class ModelSelectionDialog(private val models: List<String>) : DialogWrapper(true) {
-    private val checkBoxes = mutableListOf<JBCheckBox>()
-    private val selectAllBtn = JButton("Select All")
-    private val deselectAllBtn = JButton("Deselect All")
-
-    init {
-        title = "Select Models"
-        init()
-    }
-
-    override fun createCenterPanel(): JComponent {
-        val listPanel = JPanel()
-        listPanel.layout = BoxLayout(listPanel, BoxLayout.Y_AXIS)
-        
-        models.forEach { modelName ->
-            val cb = JBCheckBox(modelName)
-            checkBoxes.add(cb)
-            listPanel.add(cb)
-        }
-
-        val scrollPane = JBScrollPane(listPanel)
-        scrollPane.preferredSize = java.awt.Dimension(400, 300)
-
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT))
-        buttonPanel.add(selectAllBtn)
-        buttonPanel.add(deselectAllBtn)
-
-        selectAllBtn.addActionListener { checkBoxes.forEach { it.isSelected = true } }
-        deselectAllBtn.addActionListener { checkBoxes.forEach { it.isSelected = false } }
-
-        val mainPanel = JPanel(BorderLayout())
-        mainPanel.add(buttonPanel, BorderLayout.NORTH)
-        mainPanel.add(scrollPane, BorderLayout.CENTER)
-        
-        return mainPanel
-    }
-
-    fun getSelectedModels(): List<String> {
-        return checkBoxes.filter { it.isSelected }.map { it.text }
     }
 }
