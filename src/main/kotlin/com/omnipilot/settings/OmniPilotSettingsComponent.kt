@@ -181,6 +181,7 @@ class OmniPilotSettingsComponent {
 
         fetchStatusLabel.foreground = com.intellij.ui.JBColor.GRAY
         fetchStatusLabel.text = "Fetching models..."
+        providerCombo.isEnabled = false
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
@@ -227,12 +228,14 @@ class OmniPilotSettingsComponent {
                             fetchStatusLabel.foreground = com.intellij.ui.JBColor.GREEN
                             fetchStatusLabel.text = "Successfully fetched and added $addedCount new models."
                         }
+                        providerCombo.isEnabled = true
                     }
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 ApplicationManager.getApplication().invokeLater {
                     fetchStatusLabel.foreground = com.intellij.ui.JBColor.RED
                     fetchStatusLabel.text = "Failed to fetch models: ${e.message}"
+                    providerCombo.isEnabled = true
                 }
             }
         }
