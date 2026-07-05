@@ -23,7 +23,7 @@ dependencies {
 intellij {
     version.set("2023.2.5")
     type.set("IC") // IntelliJ IDEA Community Edition
-    plugins.set(listOf("com.intellij.java", "org.jetbrains.plugins.terminal"))
+    plugins.set(listOf("org.jetbrains.plugins.terminal"))
 }
 
 tasks {
