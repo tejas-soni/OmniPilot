@@ -303,9 +303,6 @@ class OmniPilotSettingsComponent {
 
     fun setProviders(providers: List<ProviderConfig>) {
         currentProviders = providers.map { it.copy() }.toMutableList()
-        if (currentProviders.isEmpty()) {
-            currentProviders.add(ProviderConfig(id = UUID.randomUUID().toString(), name = "Default NIM", baseUrl = "https://integrate.api.nvidia.com/v1"))
-        }
         apiKeyCache.clear() // Clear cache on reset
         refreshCombo()
         if (currentProviders.isNotEmpty()) {

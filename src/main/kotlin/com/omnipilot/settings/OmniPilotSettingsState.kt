@@ -18,11 +18,9 @@ data class ProviderConfig(
 )
 class OmniPilotSettingsState : PersistentStateComponent<OmniPilotSettingsState> {
     
-    var providers: MutableList<ProviderConfig> = mutableListOf(
-        ProviderConfig("default_nim", "Nvidia NIM", "https://integrate.api.nvidia.com/v1", "cerebras/zai-glm-4.7, meta/llama3-70b-instruct")
-    )
+    var providers: MutableList<ProviderConfig> = mutableListOf()
     
-    var activeProviderId: String = "default_nim"
+    var activeProviderId: String = ""
     
     var enableInlineCompletions: Boolean = true
     var autoApproveEdits: Boolean = false
