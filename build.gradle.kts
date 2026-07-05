@@ -37,7 +37,7 @@ tasks {
 
     patchPluginXml {
         sinceBuild.set("232")
-        // untilBuild intentionally not set — allows the plugin to load on all future IDE versions
+        untilBuild.set("") // Empty string = no upper bound — compatible with all future IDE versions
         pluginDescription.set(provider { file("README.md").readText() })
         changeNotes.set("""
             <ul>
