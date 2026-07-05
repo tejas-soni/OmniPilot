@@ -38,6 +38,18 @@ tasks {
     patchPluginXml {
         sinceBuild.set("232")
         untilBuild.set("242.*")
+        pluginDescription.set(provider { file("README.md").readText() })
+        changeNotes.set("""
+            <ul>
+                <li><b>1.0.0</b>: Initial release!
+                    <ul>
+                        <li>Multi-Provider Support (OpenAI, Anthropic, Groq, NVIDIA NIM, Local)</li>
+                        <li>Fully Autonomous Agent Mode</li>
+                        <li>Dynamic model fetching & Chat UI</li>
+                    </ul>
+                </li>
+            </ul>
+        """.trimIndent())
     }
     
     signPlugin {

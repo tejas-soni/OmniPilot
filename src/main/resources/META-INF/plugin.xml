@@ -1,7 +1,7 @@
 <idea-plugin>
-    <id>com.omnipilot.plugin</id>
-    <name>OmniPilot</name>
-    <vendor email="support@omnipilot.com" url="https://omnipilot.com">OmniPilot Team</vendor>
+    <id>com.tejas.omnipilot</id>
+    <name>OmniPilot - Bring Your Own Model</name>
+    <vendor email="omnipilot@tejassoni.in">Tejas Soni</vendor>
     
     <description><![CDATA[
       OmniPilot is an agentic coding assistant that allows you to connect any OpenAI-compatible API to your IDE.
