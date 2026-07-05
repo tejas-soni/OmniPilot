@@ -107,9 +107,13 @@ class OpenAiApiClient {
 
         // Debug logging — only enabled with -Domnipilot.debug=true JVM flag
         if (System.getProperty("omnipilot.debug") == "true") {
+            val maskedHeaders = request.headers.joinToString { h ->
+                val value = if (h.first == "Authorization") "***" else h.second
+                "${h.first}: $value"
+            }
             println("=== OMNIPILOT API DEBUG ===")
             println("URL: ${request.url}")
-            println("Headers: ${request.headers.joinToString { "${it.first}: ${if (it.first == \"Authorization\") \"***\" else it.second}" }}")
+            println("Headers: $maskedHeaders")
             println("Payload: $jsonString")
             println("===========================")
         }
