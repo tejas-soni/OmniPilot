@@ -35,6 +35,9 @@ data class ProviderDto(val id: String, val name: String, val models: List<String
 @Serializable
 data class ChatPayload(val providerId: String, val model: String, val mode: String, val messages: List<com.omnipilot.api.ChatMessage>)
 
+@Serializable
+data class ChatSessionSummary(val id: String, val title: String, val timestamp: Long)
+
 class OmniPilotChatPanel(private val project: Project) {
     @Volatile
     private var currentPermissionFuture: java.util.concurrent.CompletableFuture<String>? = null
@@ -338,10 +341,14 @@ class OmniPilotChatPanel(private val project: Project) {
 
         val getChatSessionsQuery = JBCefJSQuery.create(browser as JBCefBrowser)
         getChatSessionsQuery.addHandler { _ ->
-            val sessions = com.omnipilot.history.OmniPilotHistoryManager.getSessions().map {
-                mapOf("id" to it.id, "title" to it.title, "timestamp" to it.timestamp)
+            try {
+                val sessions = com.omnipilot.history.OmniPilotHistoryManager.getSessions().map {
+                    ChatSessionSummary(it.id, it.title, it.timestamp)
+                }
+                JBCefJSQuery.Response(json.encodeToString(sessions))
+            } catch (e: Exception) {
+                JBCefJSQuery.Response(null, 500, e.message ?: "Error getting sessions")
             }
-            JBCefJSQuery.Response(json.encodeToString(sessions))
         }
 
         val loadChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
