@@ -43,6 +43,7 @@ class OmniPilotSettingsComponent {
     val enableInlineCompletionsCheckbox = JBCheckBox("Enable Inline Completions (Ghost Text)")
     val autoApproveEditsCheckbox = JBCheckBox("Auto-approve file edits in Agent mode")
     val mcpServerUrlText = JBTextField()
+    val fetchStatusLabel = JBLabel("").apply { foreground = com.intellij.ui.JBColor.GRAY }
 
     private val addBtn = JButton("Add")
     private val removeBtn = JButton("Remove")
@@ -102,6 +103,7 @@ class OmniPilotSettingsComponent {
             .addLabeledComponent(JBLabel("API Base URL: "), baseUrlText, 1, false)
             .addLabeledComponent(JBLabel("API Key: "), apiKeyText, 1, false)
             .addLabeledComponent(JBLabel("Models: "), modelsPanel, 1, true)
+            .addComponent(fetchStatusLabel)
             .addSeparator()
             .addComponent(enableInlineCompletionsCheckbox, 1)
             .addComponent(autoApproveEditsCheckbox, 1)
@@ -172,9 +174,13 @@ class OmniPilotSettingsComponent {
         }
         
         if (baseUrl.isEmpty() || apiKey.isEmpty()) {
-            Messages.showErrorDialog("Please enter both Base URL and API Key to fetch models.", "Missing Details")
+            fetchStatusLabel.foreground = com.intellij.ui.JBColor.RED
+            fetchStatusLabel.text = "Error: Please enter both Base URL and API Key to fetch models."
             return
         }
+
+        fetchStatusLabel.foreground = com.intellij.ui.JBColor.GRAY
+        fetchStatusLabel.text = "Fetching models..."
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
@@ -215,15 +221,18 @@ class OmniPilotSettingsComponent {
                         }
                         
                         if (addedCount == 0) {
-                            Messages.showInfoMessage("No new models found. All fetched models are already in the list.", "Fetch Models")
+                            fetchStatusLabel.foreground = com.intellij.ui.JBColor.GRAY
+                            fetchStatusLabel.text = "No new models found. All fetched models are already in the list."
                         } else {
-                            Messages.showInfoMessage("Successfully fetched and added $addedCount new models.", "Fetch Models")
+                            fetchStatusLabel.foreground = com.intellij.ui.JBColor.GREEN
+                            fetchStatusLabel.text = "Successfully fetched and added $addedCount new models."
                         }
                     }
                 }
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
-                    Messages.showErrorDialog("Failed to fetch models:\n${e.message}\n\nPlease add them manually.", "Fetch Error")
+                    fetchStatusLabel.foreground = com.intellij.ui.JBColor.RED
+                    fetchStatusLabel.text = "Failed to fetch models: ${e.message}"
                 }
             }
         }
