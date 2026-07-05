@@ -3,20 +3,23 @@ package com.omnipilot.api
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
-import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.io.File
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 object OmniPilotAgentTools {
 
     fun getAgentTools(): List<Tool> {
+        val isWindows = System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true)
+        val shellDescription = if (isWindows) "Runs in PowerShell on Windows." else "Runs in /bin/sh on macOS/Linux."
         return listOf(
             Tool(
                 type = "function",
@@ -65,7 +68,7 @@ object OmniPilotAgentTools {
                 type = "function",
                 function = ToolFunction(
                     name = "run_command",
-                    description = "Execute a terminal command in the project root. Runs in PowerShell (Windows), so standard commands like ls, pwd, cat work fine.",
+                    description = "Execute a terminal command in the project root. $shellDescription",
                     parameters = buildJsonObject {
                         put("type", "object")
                         putJsonObject("properties") {
@@ -88,72 +91,112 @@ object OmniPilotAgentTools {
             val json = Json { ignoreUnknownKeys = true }
             val args = json.parseToJsonElement(arguments).jsonObject
             val basePath = project.basePath ?: return "Error: Project base path is null."
-            
+
             return when (name) {
                 "read_file" -> {
                     val path = args["path"]?.jsonPrimitive?.content ?: return "Error: Missing path argument."
                     val file = File(basePath, path)
-                    if (file.exists() && file.isFile) {
-                        file.readText()
-                    } else {
-                        "Error: File not found at $path"
+
+                    // Security: Prevent path traversal outside project root
+                    if (!file.canonicalPath.startsWith(File(basePath).canonicalPath)) {
+                        return "Error: Access denied. Path is outside the project directory."
                     }
+
+                    if (!file.exists() || !file.isFile) return "Error: File not found at $path"
+
+                    // Safety: Limit file size to prevent OOM
+                    if (file.length() > 500_000) {
+                        return "Error: File is too large to read (${file.length() / 1024}KB). Max is 500KB."
+                    }
+
+                    file.readText(Charsets.UTF_8)
                 }
+
                 "write_file" -> {
                     val path = args["path"]?.jsonPrimitive?.content ?: return "Error: Missing path argument."
                     val content = args["content"]?.jsonPrimitive?.content ?: return "Error: Missing content argument."
                     val file = File(basePath, path)
+
+                    // Security: Prevent path traversal outside project root
+                    if (!file.canonicalPath.startsWith(File(basePath).canonicalPath)) {
+                        return "Error: Access denied. Path is outside the project directory."
+                    }
+
                     file.parentFile?.mkdirs()
-                    file.writeText(content)
-                    
-                    // Refresh the VFS so IntelliJ sees the change
+                    file.writeText(content, Charsets.UTF_8)
+
+                    // Refresh VFS so IntelliJ sees the change immediately
                     com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                         LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)?.refresh(false, false)
                     }
                     "File successfully written."
                 }
+
                 "run_command" -> {
                     val command = args["command"]?.jsonPrimitive?.content ?: return "Error: Missing command argument."
-                    
+                    val isWindows = System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true)
+
                     val tempOut = File.createTempFile("omnipilot_out_", ".txt")
                     val tempDone = File(tempOut.absolutePath + ".done")
-                    
-                    // The command wraps the user's command in a powershell block, Tees the output to the screen and file, then creates a .done file.
-                    val wrappedCommand = "powershell.exe -NoProfile -Command \"& { $command } | Tee-Object -FilePath '${tempOut.absolutePath}'; Set-Content -Path '${tempDone.absolutePath}' -Value 'DONE'\""
 
-                    var widget: org.jetbrains.plugins.terminal.ShellTerminalWidget? = null
-                    com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
-                        val terminalView = org.jetbrains.plugins.terminal.TerminalView.getInstance(project)
-                        // This creates or reuses a tab named "OmniPilot"
-                        widget = terminalView.createLocalShellWidget(basePath, "OmniPilot")
-                        widget?.executeCommand(wrappedCommand)
-                    }
-
-                    // Poll for completion (up to 60 seconds)
-                    var attempts = 0
-                    while (!tempDone.exists() && attempts < 120) {
-                        Thread.sleep(500)
-                        attempts++
-                    }
-
-                    val output = if (tempDone.exists()) {
-                        val bytes = tempOut.readBytes()
-                        val res = if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
-                            String(bytes, Charsets.UTF_16LE)
-                        } else if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
-                            String(bytes, Charsets.UTF_16BE)
+                    try {
+                        // Build OS-appropriate wrapped command
+                        val wrappedCommand: Array<String> = if (isWindows) {
+                            arrayOf(
+                                "powershell.exe", "-NoProfile", "-Command",
+                                "& { $command } | Tee-Object -FilePath '${tempOut.absolutePath}'; Set-Content -Path '${tempDone.absolutePath}' -Value 'DONE'"
+                            )
                         } else {
-                            String(bytes, Charsets.UTF_8)
+                            arrayOf(
+                                "sh", "-c",
+                                "{ $command ; } 2>&1 | tee '${tempOut.absolutePath}'; echo DONE > '${tempDone.absolutePath}'"
+                            )
                         }
+
+                        // Use CompletableFuture + invokeLater to avoid invokeAndWait deadlock risk
+                        val widgetReady = CompletableFuture<Unit>()
+                        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                            try {
+                                val terminalView = org.jetbrains.plugins.terminal.TerminalView.getInstance(project)
+                                val widget = terminalView.createLocalShellWidget(basePath, "OmniPilot")
+                                widget.executeCommand(wrappedCommand.joinToString(" ") { if (it.contains(" ")) "\"$it\"" else it })
+                                widgetReady.complete(Unit)
+                            } catch (e: Exception) {
+                                widgetReady.completeExceptionally(e)
+                            }
+                        }
+
+                        // Wait for the widget to start (max 10s)
+                        widgetReady.get(10, TimeUnit.SECONDS)
+
+                        // Poll for done file (max 60 seconds)
+                        var attempts = 0
+                        while (!tempDone.exists() && attempts < 120) {
+                            Thread.sleep(500)
+                            attempts++
+                        }
+
+                        if (!tempDone.exists()) {
+                            return "Error: Command timed out after 60 seconds."
+                        }
+
+                        val bytes = tempOut.readBytes()
+                        val result = when {
+                            bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() ->
+                                String(bytes, Charsets.UTF_16LE)
+                            bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() ->
+                                String(bytes, Charsets.UTF_16BE)
+                            else -> String(bytes, Charsets.UTF_8)
+                        }
+
+                        if (result.isBlank()) "Command executed successfully (no output)." else result
+                    } finally {
+                        // Always clean up temp files even on exception
+                        tempOut.delete()
                         tempDone.delete()
-                        res
-                    } else {
-                        "Error: Command timed out after 60 seconds or failed to write output."
                     }
-                    tempOut.delete()
-                    
-                    if (output.isBlank()) "Command executed successfully (no output)." else output
                 }
+
                 else -> "Error: Unknown tool $name."
             }
         } catch (e: Exception) {

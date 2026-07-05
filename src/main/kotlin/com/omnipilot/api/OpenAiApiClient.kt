@@ -28,7 +28,7 @@ class OpenAiApiClient {
         encodeDefaults = true
     }
     private val jsonMediaType = "application/json".toMediaType()
-    private var currentStream: EventSource? = null
+    @Volatile private var currentStream: EventSource? = null
 
     fun cancelCurrentStream() {
         currentStream?.cancel()
@@ -105,12 +105,14 @@ class OpenAiApiClient {
             .post(body)
             .build()
 
-        // Debug logging to IDE console so the user can inspect it
-        println("=== OMNIPILOT API DEBUG ===")
-        println("URL: ${request.url}")
-        println("Headers: ${request.headers.joinToString { "${it.first}: ${if (it.first == "Authorization") "***" else it.second}" }}")
-        println("Payload: $jsonString")
-        println("===========================")
+        // Debug logging — only enabled with -Domnipilot.debug=true JVM flag
+        if (System.getProperty("omnipilot.debug") == "true") {
+            println("=== OMNIPILOT API DEBUG ===")
+            println("URL: ${request.url}")
+            println("Headers: ${request.headers.joinToString { "${it.first}: ${if (it.first == \"Authorization\") \"***\" else it.second}" }}")
+            println("Payload: $jsonString")
+            println("===========================")
+        }
 
         var pendingToolCallId: String? = null
         var pendingToolCallName: String? = null
@@ -159,7 +161,9 @@ class OpenAiApiClient {
                         if (execute) onToken("> *(Done)*\n\n") else onToken("> *(Denied)*\n\n")
                         
                         // Recurse with new messages
-                        val newMessages = messages.toMutableList()
+                        // Defensive copy to prevent ConcurrentModificationException
+                        // The original list may be modified by the caller's thread concurrently
+                        val newMessages = ArrayList(messages)
                         newMessages.add(ChatMessage(
                             role = "assistant",
                             toolCalls = listOf(ToolCall(

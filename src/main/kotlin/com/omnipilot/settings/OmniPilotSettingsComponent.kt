@@ -52,6 +52,12 @@ class OmniPilotSettingsComponent {
     var currentProviders = mutableListOf<ProviderConfig>()
     var apiKeyCache = mutableMapOf<String, String>()
     
+    // Shared HTTP client — must not be created per-request as it holds thread pool resources
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+    
     private var isUpdatingUi = false
     private var lastSelectedId: String? = null
 
@@ -186,7 +192,7 @@ class OmniPilotSettingsComponent {
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val client = OkHttpClient()
+                val client = httpClient
                 val request = Request.Builder()
                     .url("$baseUrl/models")
                     .header("Authorization", "Bearer $apiKey")

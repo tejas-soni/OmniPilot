@@ -204,7 +204,7 @@ class OmniPilotChatPanel(private val project: Project) {
 
         val insertQuery = JBCefJSQuery.create(browser as JBCefBrowser)
         insertQuery.addHandler { encodedCode ->
-            val code = java.net.URLDecoder.decode(encodedCode, "UTF-8")
+            val code = java.net.URLDecoder.decode(encodedCode, Charsets.UTF_8)
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                 val editor = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).selectedTextEditor
                 if (editor != null) {
@@ -222,7 +222,7 @@ class OmniPilotChatPanel(private val project: Project) {
 
         val newFileQuery = JBCefJSQuery.create(browser as JBCefBrowser)
         newFileQuery.addHandler { encodedCode ->
-            val code = java.net.URLDecoder.decode(encodedCode, "UTF-8")
+            val code = java.net.URLDecoder.decode(encodedCode, Charsets.UTF_8)
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                 com.intellij.openapi.command.WriteCommandAction.runWriteCommandAction(project) {
                     val scratchFile = com.intellij.ide.scratch.ScratchRootType.getInstance().createScratchFile(project, "snippet.txt", com.intellij.openapi.fileTypes.PlainTextLanguage.INSTANCE, code)
