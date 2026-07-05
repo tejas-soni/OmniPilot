@@ -1,0 +1,19 @@
+<svg width="13" height="13" viewBox="0 0 13 13" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00FF87"/>
+      <stop offset="100%" stop-color="#60EFFF"/>
+    </linearGradient>
+  </defs>
+  <!-- Left bracket arc -->
+  <path d="M4.5 2.5 C2.5 2.5, 1.5 4, 1.5 6.5 C1.5 9, 2.5 10.5, 4.5 10.5"
+        fill="none" stroke="url(#g)" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Right bracket arc -->
+  <path d="M8.5 2.5 C10.5 2.5, 11.5 4, 11.5 6.5 C11.5 9, 10.5 10.5, 8.5 10.5"
+        fill="none" stroke="url(#g)" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- Eyes -->
+  <circle cx="4.8" cy="6.5" r="1.2" fill="#FFFFFF"/>
+  <circle cx="8.2" cy="6.5" r="1.2" fill="#FFFFFF"/>
+  <!-- Antenna -->
+  <line x1="5" y1="2.5" x2="8" y2="2.5" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round"/>
+</svg>
