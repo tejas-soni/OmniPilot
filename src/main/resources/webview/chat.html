@@ -709,15 +709,28 @@
             }
         });
 
+        function renderMarkdownText(text) {
+            let renderedText = text;
+            if (renderedText.includes("<think>")) {
+                renderedText = renderedText.replace(/<think>/g, '<details class="thinking-block"><summary>Thinking Process...</summary><div class="thinking-content">');
+                if (renderedText.includes("</think>")) {
+                    renderedText = renderedText.replace(/<\/think>/g, '</div></details>');
+                } else {
+                    renderedText += '</div></details>';
+                }
+            }
+            return marked.parse(renderedText);
+        }
+
         function appendMessage(role, text, isMarkdown = false) {
             if (emptyStateHelper) emptyStateHelper.style.display = 'none';
             
             const div = document.createElement('div');
             div.className = 'message ' + role;
             
-            if (role === 'agent') {
+            if (role === 'agent' || role === 'assistant') {
                 if (isMarkdown) {
-                    div.innerHTML = marked.parse(text);
+                    div.innerHTML = renderMarkdownText(text);
                 } else {
                     div.textContent = text;
                 }
@@ -933,6 +946,7 @@
                                 appendMessage(msg.role, msg.content, msg.role === 'agent' || msg.role === 'assistant');
                             }
                         });
+                        addCopyButtons();
                         loadSessionsSidebar();
                         document.getElementById('history-sidebar').classList.remove('open');
                     }
@@ -954,20 +968,14 @@
         window.omniPilotReceiveToken = function(token) {
             currentStreamingText += token;
             
-            // Check for think tags
-            let renderedText = currentStreamingText;
-            if (renderedText.includes("<think>")) {
-                renderedText = renderedText.replace(/<think>/g, '<details class="thinking-block" open><summary>Thinking Process...</summary><div class="thinking-content">');
-                if (renderedText.includes("</think>")) {
-                    renderedText = renderedText.replace(/<\/think>/g, '</div></details>');
-                } else {
-                    renderedText += '</div></details>';
-                }
-            }
-            
             const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
             if (currentStreamingAgentDiv) {
-                currentStreamingAgentDiv.innerHTML = marked.parse(renderedText);
+                currentStreamingAgentDiv.innerHTML = renderMarkdownText(currentStreamingText);
+                
+                // Keep the details open if we are streaming
+                const details = currentStreamingAgentDiv.querySelector('.thinking-block');
+                if (details) details.setAttribute('open', '');
+                
                 if (isNearBottom) chatContainer.scrollTop = chatContainer.scrollHeight;
                 addCopyButtons();
             }
