@@ -3,6 +3,7 @@ package com.omnipilot.settings
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.AnActionButton
@@ -206,7 +207,7 @@ class OmniPilotSettingsComponent {
                         throw Exception("No models found in the response")
                     }
 
-                    ApplicationManager.getApplication().invokeLater {
+                    ApplicationManager.getApplication().invokeLater({
                         val existingModels = mutableSetOf<String>()
                         for (i in 0 until modelsTableModel.rowCount) {
                             val modelName = modelsTableModel.getValueAt(i, 1) as? String ?: continue
@@ -229,14 +230,14 @@ class OmniPilotSettingsComponent {
                             fetchStatusLabel.text = "Successfully fetched and added $addedCount new models."
                         }
                         providerCombo.isEnabled = true
-                    }
+                    }, ModalityState.any())
                 }
             } catch (e: Throwable) {
-                ApplicationManager.getApplication().invokeLater {
+                ApplicationManager.getApplication().invokeLater({
                     fetchStatusLabel.foreground = com.intellij.ui.JBColor.RED
                     fetchStatusLabel.text = "Failed to fetch models: ${e.message}"
                     providerCombo.isEnabled = true
-                }
+                }, ModalityState.any())
             }
         }
     }
