@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniPilot Chat</title>
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --text-color: #a9b7c6;
+            --input-bg: #2b2b2b;
+            --input-border: #4d4d4d;
+            --input-border-focus: #3574f0;
+            --message-user-bg: #2b2d30;
+            --message-agent-bg: transparent;
+            --dropdown-bg: #3c3f41;
+            --dropdown-hover: #4b4d4d;
+            --icon-color: #8c8c8c;
+            --icon-hover: #a9b7c6;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Top Header Area (Like in the screenshot "AI Chat", "New Chat", History icon) */
+        #header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #d4d4d4;
+            border-bottom: 1px solid #333;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            color: var(--icon-color);
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .header-actions span:hover {
+            color: var(--icon-hover);
+        }
+
+        /* Chat History Area */
+        #chat-container {
+            flex-grow: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Helper center text before chat starts */
+        #empty-state-helper {
+            margin: auto;
+            text-align: center;
+            color: #7a7a7a;
+            font-size: 13px;
+            line-height: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .helper-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .keybind {
+            background-color: #333;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 11px;
+            color: #d4d4d4;
+        }
+
+        .message {
+            line-height: 1.6;
+            font-size: 14px;
+            max-width: 100%;
+            word-wrap: break-word;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message.user {
+            align-self: flex-end;
+            background-color: var(--message-user-bg);
+            padding: 12px 16px;
+            border-radius: 8px;
+            max-width: 85%;
+            color: #d4d4d4;
+        }
+
+        .message.agent {
+            align-self: flex-start;
+            background-color: var(--message-agent-bg);
+            color: #a9b7c6;
+            padding: 0;
+            width: 100%;
+        }
+
+        .message.agent p {
+            margin-top: 0;
+        }
+
+        .message pre {
+            background: #1e1f22;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            border: 1px solid #43454a;
+            position: relative;
+        }
+        /* Code Actions */
+        .code-actions {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        pre:hover .code-actions { opacity: 1; }
+        .code-btn {
+            background: #3c3f41;
+            color: #a9b7c6;
+            border: 1px solid #4d4d4d;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .code-btn:hover { background: #4b4d4d; color: #fff; }
+
+        .message code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+
+        /* Bottom Input Area */
+        #input-wrapper {
+            flex-shrink: 0;
+            padding: 16px;
+            background-color: var(--bg-color);
+            border-top: 1px solid #333;
+        }
+
+        #input-container {
+            background-color: var(--bg-color);
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            transition: border-color 0.2s;
+            position: relative;
+        }
+
+        #input-container.focused {
+            border-color: var(--input-border-focus);
+            box-shadow: 0 0 0 1px var(--input-border-focus);
+        }
+
+        #prompt-input {
+            background-color: transparent;
+            color: #d4d4d4;
+            border: none;
+            padding: 12px 14px;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+            min-height: 44px;
+            max-height: 200px;
+            font-family: inherit;
+        }
+        
+        #prompt-input::placeholder {
+            color: #6c6c6c;
+        }
+
+        /* Toolbar inside input box (bottom row) */
+        #input-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 12px 10px 12px;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Custom Dropdown styling */
+        select {
+            appearance: none;
+            background-color: transparent;
+            color: #a9b7c6;
+            border: none;
+            padding: 4px 20px 4px 8px;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+            border-radius: 4px;
+            /* Simple SVG arrow */
+            background-image: url('data:image/svg+xml;utf8,<svg fill="%23a9b7c6" height="16" viewBox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right 2px center;
+        }
+
+        select:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: #d4d4d4;
+        }
+
+        select option {
+            background-color: var(--dropdown-bg);
+            color: #d4d4d4;
+        }
+
+        /* Icon Buttons */
+        .icon-btn {
+            background: none;
+            border: none;
+            color: var(--icon-color);
+            cursor: pointer;
+            padding: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+        .icon-btn:hover {
+            color: var(--icon-hover);
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+        
+        #send-btn {
+            color: var(--icon-color);
+        }
+        #send-btn.active {
+            color: #d4d4d4;
+        }
+        #send-btn.stop-btn {
+            color: #f48771;
+            opacity: 1;
+        }
+        #send-btn.stop-btn:hover {
+            color: #ff6b4a;
+        }
+        
+        details.thinking-block {
+            margin: 8px 0;
+            border-left: 2px solid #555;
+            padding-left: 12px;
+            color: #888;
+        }
+        details.thinking-block summary {
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-bottom: 4px;
+            user-select: none;
+        }
+        details.thinking-block summary:hover {
+            color: #aaa;
+        }
+        .thinking-content {
+            font-size: 0.95em;
+            margin-top: 4px;
+        }
+
+        /* SVG Icons */
+        svg {
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }
+        /* Permission Dialog */
+        #permission-dialog {
+            display: none;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            background: #2b2d30;
+            border: 1px solid #4d4d4d;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 1000;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .perm-title { font-weight: bold; color: #d4d4d4; }
+        .perm-body { font-size: 13px; color: #a9b7c6; }
+        .perm-code { background: #1e1e1e; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 12px; overflow-x: auto; margin-top: 8px; }
+        .perm-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+        .perm-btn { background: #3c3f41; color: #d4d4d4; border: 1px solid #4d4d4d; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+        .perm-btn:hover { background: #4b4d4d; }
+        .perm-btn-primary { background: #3574f0; color: white; border: none; }
+        .perm-btn-primary:hover { background: #2b5bc0; }
+    </style>
+</head>
+<body>
+    <div id="permission-dialog">
+        <div class="perm-title">Permission Required</div>
+        <div class="perm-body">
+            OmniPilot wants to execute <b id="permission-tool"></b>:
+            <div class="perm-code" id="permission-args"></div>
+        </div>
+        <div class="perm-actions">
+            <button class="perm-btn" id="perm-deny-btn">Deny</button>
+            <button class="perm-btn" id="perm-workspace-btn">Allow Workspace</button>
+            <button class="perm-btn perm-btn-primary" id="perm-allow-btn">Allow</button>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <div id="header">
+        <span>AI Chat</span>
+        <div class="header-actions">
+            <span id="new-chat-btn">+ New Chat</span>
+            <svg id="history-btn" title="Chat History" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+            <svg id="more-options-btn" title="More Options" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div id="chat-container">
+        <div id="empty-state-helper">
+            <div class="helper-row">
+                <span>Multiline code completion</span>
+                <span class="keybind">Alt</span><span class="keybind">Shift</span><span class="keybind">\</span>
+            </div>
+            <div class="helper-row">
+                <span>Code generation in the editor</span>
+                <span class="keybind">Ctrl</span><span class="keybind">\</span>
+            </div>
+            <div class="helper-row">
+                <span>AI actions in the editor's context menu</span>
+            </div>
+            <div style="color: var(--input-border-focus); margin-top: 8px; cursor: pointer;">All features</div>
+        </div>
+    </div>
+
+    <!-- Input Box Area -->
+    <div id="input-wrapper">
+        <div id="input-container">
+            <textarea id="prompt-input" placeholder="Message OmniPilot..." rows="1"></textarea>
+            
+            <div id="input-toolbar">
+                <div class="toolbar-group">
+                    <button class="icon-btn" id="attach-btn" title="Attach Context">
+                        <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                    </button>
+                    <!-- Provider (Agent) Selector -->
+                    <select id="provider-select">
+                        <option value="">Loading Agents...</option>
+                    </select>
+                </div>
+                
+                <div class="toolbar-group">
+                    <!-- Model Selector -->
+                    <select id="model-select">
+                        <option value="">Loading Models...</option>
+                    </select>
+                    
+                    <select id="mode-select" title="Mode">
+                        <option value="chat" selected>Chat (Ask)</option>
+                        <option value="agent">Agent (Auto)</option>
+                        <option value="readonly">Read-Only</option>
+                    </select>
+                    
+                    <button class="icon-btn" id="send-btn" title="Send">
+                        <!-- Send Icon -->
+                        <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 8px; font-size: 12px; color: #666; cursor: pointer;">
+            Share feedback ↗
+        </div>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const emptyStateHelper = document.getElementById('empty-state-helper');
+        const promptInput = document.getElementById('prompt-input');
+        const inputContainer = document.getElementById('input-container');
+        const sendBtn = document.getElementById('send-btn');
+        
+        const providerSelect = document.getElementById('provider-select');
+        const modelSelect = document.getElementById('model-select');
+
+        let loadedProviders = [];
+        let currentStreamingAgentDiv = null;
+        let currentStreamingText = "";
+        let chatHistory = [];
+        let isStreaming = false;
+
+        // Input focus styling
+        promptInput.addEventListener('focus', () => inputContainer.classList.add('focused'));
+        promptInput.addEventListener('blur', () => inputContainer.classList.remove('focused'));
+
+        // Input auto-resize
+        promptInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if (this.value.trim().length > 0) {
+                sendBtn.classList.add('active');
+            } else {
+                sendBtn.classList.remove('active');
+            }
+        });
+
+        function appendMessage(role, text, isMarkdown = false) {
+            if (emptyStateHelper) emptyStateHelper.style.display = 'none';
+            
+            const div = document.createElement('div');
+            div.className = 'message ' + role;
+            
+            if (role === 'agent') {
+                if (isMarkdown) {
+                    div.innerHTML = marked.parse(text);
+                } else {
+                    div.textContent = text;
+                }
+            } else {
+                div.textContent = text;
+            }
+            
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return div;
+        }
+
+        async function loadProviders() {
+            if (!window.omniPilotGetProviders) return;
+            try {
+                const response = await window.omniPilotGetProviders();
+                loadedProviders = JSON.parse(response);
+                
+                providerSelect.innerHTML = '';
+                
+                if (loadedProviders.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.textContent = "No Agents Configured";
+                    providerSelect.appendChild(opt);
+                    return;
+                }
+
+                loadedProviders.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name;
+                    providerSelect.appendChild(opt);
+                });
+
+                // Trigger model load for first provider
+                updateModelsDropdown();
+
+            } catch(e) {
+                console.error("Failed to load providers", e);
+            }
+        }
+
+        function updateModelsDropdown() {
+            const providerId = providerSelect.value;
+            const provider = loadedProviders.find(p => p.id === providerId);
+            
+            modelSelect.innerHTML = '';
+            
+            if (provider && provider.models && provider.models.length > 0) {
+                provider.models.forEach(modelName => {
+                    const opt = document.createElement('option');
+                    opt.value = modelName;
+                    opt.textContent = modelName;
+                    modelSelect.appendChild(opt);
+                });
+            } else {
+                const opt = document.createElement('option');
+                opt.value = "";
+                opt.textContent = "No models available";
+                modelSelect.appendChild(opt);
+            }
+        }
+
+        providerSelect.addEventListener('change', updateModelsDropdown);
+
+        window.addEventListener('OmniPilotBridgeReady', () => {
+            loadProviders();
+            loadHistory();
+        });
+
+        if (window.omniPilotGetProviders) {
+            loadProviders();
+            loadHistory();
+        }
+
+        // History persistence
+        async function saveHistory() {
+            if (window.omniPilotSaveHistory) {
+                await window.omniPilotSaveHistory(JSON.stringify(chatHistory));
+            }
+        }
+        
+        async function loadHistory() {
+            if (window.omniPilotLoadHistory) {
+                try {
+                    const historyJson = await window.omniPilotLoadHistory();
+                    if (historyJson && historyJson !== "[]") {
+                        const history = JSON.parse(historyJson);
+                        if (history.length > 0) {
+                            chatHistory = history;
+                            history.forEach(msg => {
+                                if (msg.role !== 'system') {
+                                    appendMessage(msg.role, msg.content, msg.role === 'agent' || msg.role === 'assistant');
+                                }
+                            });
+                        }
+                    }
+                } catch(e) {
+                    console.error("Failed to load history", e);
+                }
+            }
+        }
+
+        // Streaming Callbacks
+        window.omniPilotReceiveToken = function(token) {
+            currentStreamingText += token;
+            
+            // Check for think tags
+            let renderedText = currentStreamingText;
+            if (renderedText.includes("<think>")) {
+                renderedText = renderedText.replace(/<think>/g, '<details class="thinking-block" open><summary>Thinking Process...</summary><div class="thinking-content">');
+                if (renderedText.includes("</think>")) {
+                    renderedText = renderedText.replace(/<\/think>/g, '</div></details>');
+                } else {
+                    renderedText += '</div></details>';
+                }
+            }
+            
+            const isNearBottom = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 50;
+            if (currentStreamingAgentDiv) {
+                currentStreamingAgentDiv.innerHTML = marked.parse(renderedText);
+                if (isNearBottom) chatContainer.scrollTop = chatContainer.scrollHeight;
+                addCopyButtons();
+            }
+        };
+
+        window.omniPilotReceiveComplete = function() {
+            promptInput.disabled = false;
+            promptInput.focus();
+            
+            // Auto collapse thinking blocks
+            document.querySelectorAll('.thinking-block').forEach(el => el.removeAttribute('open'));
+            
+            // Revert Stop button to Send button
+            sendBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
+            sendBtn.title = "Send";
+            sendBtn.classList.remove('stop-btn');
+            isStreaming = false;
+            
+            if (currentStreamingText) {
+                chatHistory.push({role: "assistant", content: currentStreamingText});
+                saveHistory();
+            }
+            
+            addCopyButtons();
+        };
+
+        window.omniPilotReceiveError = function(errMsg) {
+            if (currentStreamingAgentDiv) {
+                currentStreamingAgentDiv.innerHTML = `<span style="color: #f48771;">Error: ${errMsg}</span>`;
+            } else {
+                appendMessage('agent', `Error: ${errMsg}`);
+            }
+            window.omniPilotReceiveComplete();
+        };
+
+        async function sendMessage() {
+            if (isStreaming) {
+                // Cancel stream
+                if (window.omniPilotCancelStream) {
+                    await window.omniPilotCancelStream();
+                }
+                return;
+            }
+
+            const text = promptInput.value.trim();
+            if (!text) return;
+
+            appendMessage('user', text);
+            chatHistory.push({role: "user", content: text});
+            saveHistory();
+            
+            promptInput.value = '';
+            promptInput.style.height = 'auto';
+            promptInput.disabled = true;
+
+            // Change Send button to Stop button
+            isStreaming = true;
+            sendBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>';
+            sendBtn.title = "Stop Generating";
+            sendBtn.classList.add('stop-btn');
+
+            currentStreamingText = "";
+            currentStreamingAgentDiv = appendMessage('agent', '...', true);
+
+            const providerId = providerSelect.value;
+            const modelName = modelSelect.value;
+            const modeName = document.getElementById('mode-select').value;
+            
+            const payload = JSON.stringify({
+                providerId: providerId,
+                model: modelName,
+                mode: modeName,
+                messages: chatHistory
+            });
+
+            if (window.omniPilotBackend) {
+                try {
+                    await window.omniPilotBackend(payload);
+                } catch(e) {
+                    window.omniPilotReceiveError(e.toString());
+                }
+            } else {
+                window.omniPilotReceiveError("Bridge not connected");
+            }
+        }
+        
+        function addCopyButtons() {
+            document.querySelectorAll('pre').forEach((pre) => {
+                if (pre.querySelector('.code-actions')) return; // Already added
+                
+                const codeActions = document.createElement('div');
+                codeActions.className = 'code-actions';
+                
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'code-btn';
+                copyBtn.innerHTML = 'Copy';
+                copyBtn.onclick = () => {
+                    const code = pre.querySelector('code').innerText;
+                    navigator.clipboard.writeText(code);
+                    copyBtn.innerHTML = 'Copied!';
+                    setTimeout(() => copyBtn.innerHTML = 'Copy', 2000);
+                };
+                
+                const insertBtn = document.createElement('button');
+                insertBtn.className = 'code-btn';
+                insertBtn.innerHTML = 'Insert at Cursor';
+                insertBtn.onclick = () => {
+                    const code = pre.querySelector('code').innerText;
+                    if (window.omniPilotInsertCode) window.omniPilotInsertCode(encodeURIComponent(code));
+                };
+                
+                const newFileBtn = document.createElement('button');
+                newFileBtn.className = 'code-btn';
+                newFileBtn.innerHTML = 'New File';
+                newFileBtn.onclick = () => {
+                    const code = pre.querySelector('code').innerText;
+                    if (window.omniPilotNewFile) window.omniPilotNewFile(encodeURIComponent(code));
+                };
+                
+                codeActions.appendChild(insertBtn);
+                codeActions.appendChild(newFileBtn);
+                codeActions.appendChild(copyBtn);
+                
+                pre.style.position = 'relative';
+                pre.appendChild(codeActions);
+            });
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        promptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Header Actions
+        document.getElementById('new-chat-btn').addEventListener('click', () => {
+            // Remove all messages
+            const messages = document.querySelectorAll('.message');
+            messages.forEach(msg => msg.remove());
+            // Clear history
+            chatHistory = [];
+            // Show empty state helper again
+            if (emptyStateHelper) emptyStateHelper.style.display = 'flex';
+        });
+
+        document.getElementById('history-btn').addEventListener('click', () => {
+            alert('Chat History coming soon!');
+        });
+        
+        document.getElementById('more-options-btn').addEventListener('click', () => {
+            alert('More options coming soon!');
+        });
+        
+        document.getElementById('attach-btn').addEventListener('click', async () => {
+            if (window.omniPilotSelectFile) {
+                try {
+                    const filePath = await window.omniPilotSelectFile();
+                    if (filePath) {
+                        appendMessage('user', `Attached file: ${filePath}`);
+                        chatHistory.push({role: "user", content: `Attached file: ${filePath}`});
+                    }
+                } catch(e) {
+                    console.error("Failed to select file", e);
+                }
+            } else {
+                console.error("omniPilotSelectFile bridge not found");
+            }
+        });
+        
+        // Permission Dialog Logic
+        let permissionResolve = null;
+        
+        function showPermissionDialog(toolName, argsStr) {
+            const dialog = document.getElementById('permission-dialog');
+            const toolText = document.getElementById('permission-tool');
+            const argsText = document.getElementById('permission-args');
+            
+            toolText.innerText = toolName;
+            argsText.innerText = argsStr;
+            dialog.style.display = 'flex';
+            
+            // Add Diff Button dynamically if write_file
+            const actionsDiv = document.querySelector('.perm-actions');
+            let diffBtn = document.getElementById('perm-diff-btn');
+            if (diffBtn) diffBtn.remove();
+            
+            if (toolName === 'write_file') {
+                diffBtn = document.createElement('button');
+                diffBtn.id = 'perm-diff-btn';
+                diffBtn.className = 'perm-btn';
+                diffBtn.style.marginRight = 'auto'; // push to the left
+                diffBtn.innerText = 'View Diff';
+                diffBtn.onclick = () => {
+                    if (window.omniPilotShowDiff) window.omniPilotShowDiff(argsStr);
+                };
+                actionsDiv.prepend(diffBtn);
+            }
+            
+            // Re-bind buttons
+            document.getElementById('perm-allow-btn').onclick = () => {
+                dialog.style.display = 'none';
+                if (window.omniPilotPermission) window.omniPilotPermission("ALLOW");
+            };
+            document.getElementById('perm-deny-btn').onclick = () => {
+                dialog.style.display = 'none';
+                if (window.omniPilotPermission) window.omniPilotPermission("DENY");
+            };
+            document.getElementById('perm-workspace-btn').onclick = () => {
+                dialog.style.display = 'none';
+                if (window.omniPilotPermission) window.omniPilotPermission("ALLOW_WORKSPACE");
+            };
+        }
+    </script>
+</body>
+</html>

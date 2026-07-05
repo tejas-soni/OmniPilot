@@ -1,0 +1,25 @@
+<idea-plugin>
+    <id>com.omnipilot.plugin</id>
+    <name>OmniPilot</name>
+    <vendor email="support@omnipilot.com" url="https://omnipilot.com">OmniPilot Team</vendor>
+    
+    <description><![CDATA[
+      OmniPilot is an agentic coding assistant that allows you to connect any OpenAI-compatible API to your IDE.
+      Features inline completion, chat tool window, and seamless agentic code modifications with Keep/Undo diffs.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="com.omnipilot.settings.OmniPilotSettingsState"/>
+        <applicationConfigurable parentId="tools" instance="com.omnipilot.settings.OmniPilotConfigurable"
+                                 id="com.omnipilot.settings.OmniPilotConfigurable"
+                                 displayName="OmniPilot"/>
+                                 
+        <toolWindow id="OmniPilot" anchor="right" factoryClass="com.omnipilot.ui.OmniPilotToolWindowFactory"/>
+        
+        <inline.completionProvider implementation="com.omnipilot.completion.OmniPilotInlineCompletionProvider"/>
+    </extensions>
+</idea-plugin>
