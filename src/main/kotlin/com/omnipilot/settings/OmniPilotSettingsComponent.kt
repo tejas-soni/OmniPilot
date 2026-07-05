@@ -73,6 +73,7 @@ class OmniPilotSettingsComponent {
     private val modelsTable = JBTable(modelsTableModel).apply {
         columnModel.getColumn(0).maxWidth = 80
     }
+    private lateinit var providerDetailsPanel: JPanel
 
     init {
         val topPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -104,13 +105,17 @@ class OmniPilotSettingsComponent {
         val modelsPanel = decorator.createPanel()
         modelsPanel.preferredSize = Dimension(400, 200)
 
-        panel = FormBuilder.createFormBuilder()
-            .addComponent(topPanel)
+        providerDetailsPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Provider Name: "), providerNameText, 1, false)
             .addLabeledComponent(JBLabel("API Base URL: "), baseUrlText, 1, false)
             .addLabeledComponent(JBLabel("API Key: "), apiKeyText, 1, false)
             .addLabeledComponent(JBLabel("Models: "), modelsPanel, 1, true)
             .addComponent(fetchStatusLabel)
+            .panel
+
+        panel = FormBuilder.createFormBuilder()
+            .addComponent(topPanel)
+            .addComponent(providerDetailsPanel)
             .addSeparator()
             .addComponent(enableInlineCompletionsCheckbox, 1)
             .addComponent(autoApproveEditsCheckbox, 1)
@@ -277,6 +282,8 @@ class OmniPilotSettingsComponent {
     private fun loadSelectionToUi() {
         isUpdatingUi = true
         val selected = providerCombo.selectedItem as? ProviderConfig
+        providerDetailsPanel.isVisible = (selected != null)
+        
         if (selected != null) {
             lastSelectedId = selected.id
             providerNameText.text = selected.name
@@ -308,6 +315,7 @@ class OmniPilotSettingsComponent {
         if (currentProviders.isNotEmpty()) {
             providerCombo.selectedIndex = 0
         }
+        loadSelectionToUi()
     }
 
     private fun refreshCombo() {
