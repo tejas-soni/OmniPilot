@@ -70,9 +70,25 @@ class OpenAiApiClient {
         var cleanBaseUrl = provider.baseUrl.replace(Regex("[^\\x20-\\x7E]"), "").trim()
         cleanBaseUrl = cleanBaseUrl.removeSuffix("/")
 
+        var normalizedMessages = messages.toMutableList()
+        if (cleanModel.contains("claude", ignoreCase = true) || cleanModel.contains("anthropic", ignoreCase = true)) {
+            val systemMsgs = normalizedMessages.filter { it.role == "system" }
+            if (systemMsgs.isNotEmpty()) {
+                val sysContent = systemMsgs.mapNotNull { it.content }.joinToString("\n\n")
+                normalizedMessages.removeAll { it.role == "system" }
+                val firstUserIdx = normalizedMessages.indexOfFirst { it.role == "user" }
+                if (firstUserIdx != -1) {
+                    val userMsg = normalizedMessages[firstUserIdx]
+                    normalizedMessages[firstUserIdx] = userMsg.copy(content = "System Instructions:\n$sysContent\n\n---\n${userMsg.content}")
+                } else {
+                    normalizedMessages.add(0, ChatMessage(role = "user", content = sysContent))
+                }
+            }
+        }
+
         val requestBody = ChatCompletionRequest(
             model = cleanModel,
-            messages = messages,
+            messages = normalizedMessages,
             tools = tools,
             stream = true
         )
