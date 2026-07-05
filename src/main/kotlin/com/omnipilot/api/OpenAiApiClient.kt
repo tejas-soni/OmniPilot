@@ -25,7 +25,7 @@ class OpenAiApiClient {
     private val json = Json { 
         ignoreUnknownKeys = true 
         explicitNulls = false
-        encodeDefaults = false
+        encodeDefaults = true
     }
     private val jsonMediaType = "application/json".toMediaType()
     private var currentStream: EventSource? = null
