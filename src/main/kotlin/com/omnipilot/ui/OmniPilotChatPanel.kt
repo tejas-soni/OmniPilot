@@ -1,6 +1,7 @@
 package com.omnipilot.ui
 
 import com.intellij.openapi.project.Project
+import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefJSQuery
 import com.omnipilot.api.ChatMessage
@@ -14,10 +15,19 @@ import kotlinx.serialization.Serializable
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
+import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Dimension
+import java.awt.Font
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
+import javax.swing.BorderFactory
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-import java.awt.BorderLayout
+import javax.swing.SwingConstants
 
 @Serializable
 data class ProviderDto(val id: String, val name: String, val models: List<String>)
@@ -31,9 +41,9 @@ class OmniPilotChatPanel(private val project: Project) {
     @Volatile
     private var allowAllWorkspace = false
 
-    private val browser: JBCefBrowser? = try {
-        JBCefBrowser()
-    } catch (e: Exception) {
+    private val browser: JBCefBrowser? = if (JBCefApp.isSupported()) {
+        try { JBCefBrowser() } catch (e: Exception) { null }
+    } else {
         null
     }
     
@@ -56,8 +66,7 @@ class OmniPilotChatPanel(private val project: Project) {
 
             setupJsBridge()
         } else {
-            content = JPanel(BorderLayout())
-            content.add(JLabel("JCEF (Chromium) is not supported in your current IDE runtime."), BorderLayout.CENTER)
+            content = buildJcefFallbackPanel()
         }
 
         // Subscribe to settings changes to refresh providers in the UI
@@ -69,6 +78,99 @@ class OmniPilotChatPanel(private val project: Project) {
                 }
             }
         })
+    }
+
+    private fun buildJcefFallbackPanel(): JPanel {
+        val panel = JPanel(GridBagLayout())
+        panel.background = Color(0x1e1e1e)
+        panel.border = BorderFactory.createEmptyBorder(24, 24, 24, 24)
+
+        val gbc = GridBagConstraints().apply {
+            gridx = 0; gridy = GridBagConstraints.RELATIVE
+            fill = GridBagConstraints.HORIZONTAL
+            anchor = GridBagConstraints.CENTER
+            insets = Insets(6, 0, 6, 0)
+        }
+
+        // Robot emoji label
+        val iconLabel = JLabel("🤖", SwingConstants.CENTER)
+        iconLabel.font = Font("Dialog", Font.PLAIN, 40)
+        panel.add(iconLabel, gbc)
+
+        // Title
+        val titleLabel = JLabel("<html><center>Chromium (JCEF) Not Enabled</center></html>", SwingConstants.CENTER)
+        titleLabel.font = Font("Dialog", Font.BOLD, 14)
+        titleLabel.foreground = Color(0xd4d4d4)
+        panel.add(titleLabel, gbc)
+
+        // Description
+        val descLabel = JLabel(
+            "<html><center style='color:#8c8c8c;font-size:11px;line-height:1.6'>" +
+            "OmniPilot's chat UI requires the JetBrains Runtime<br>" +
+            "with JCEF (Chromium Embedded Framework).<br><br>" +
+            "Android Studio ships with a runtime that has<br>" +
+            "JCEF disabled by default. Fix it in 3 steps:</center></html>",
+            SwingConstants.CENTER
+        )
+        descLabel.foreground = Color(0x8c8c8c)
+        panel.add(descLabel, gbc)
+
+        // Steps
+        val stepsLabel = JLabel(
+            "<html><ol style='color:#a9b7c6;font-size:11px;margin-left:16px'>" +
+            "<li>Open <b>Help → Find Action</b> (Ctrl+Shift+A)</li>" +
+            "<li>Search for <b>\"Choose Boot Java Runtime\"</b></li>" +
+            "<li>Select a runtime labelled <b>jbr-…-jcef</b> and restart</li>" +
+            "</ol></html>"
+        )
+        stepsLabel.foreground = Color(0xa9b7c6)
+        panel.add(stepsLabel, gbc)
+
+        // Button to trigger the action directly
+        val fixBtn = JButton("⚡ Open Boot Runtime Selector")
+        fixBtn.background = Color(0x3574f0)
+        fixBtn.foreground = Color.WHITE
+        fixBtn.isBorderPainted = false
+        fixBtn.isFocusPainted = false
+        fixBtn.font = Font("Dialog", Font.BOLD, 12)
+        fixBtn.preferredSize = Dimension(240, 34)
+        fixBtn.cursor = java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)
+        fixBtn.addActionListener {
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                // Trigger the "Choose Boot Runtime for the IDE" action directly
+                val actionManager = com.intellij.openapi.actionSystem.ActionManager.getInstance()
+                val action = actionManager.getAction("ChooseBootRuntimeAction")
+                    ?: actionManager.getAction("com.intellij.ide.actions.ChooseBootRuntimeAction")
+                if (action != null) {
+                    val event = com.intellij.openapi.actionSystem.AnActionEvent.createFromAnAction(
+                        action,
+                        null,
+                        com.intellij.openapi.actionSystem.ActionPlaces.UNKNOWN,
+                        com.intellij.openapi.actionSystem.impl.SimpleDataContext.getProjectContext(project)
+                    )
+                    action.actionPerformed(event)
+                } else {
+                    // Fallback: open the JetBrains help page
+                    com.intellij.ide.BrowserUtil.browse("https://www.jetbrains.com/help/idea/switching-boot-jdk.html")
+                }
+            }
+        }
+        panel.add(fixBtn, gbc)
+
+        // Help link
+        val helpLabel = JLabel(
+            "<html><center><a style='color:#3574f0' href=''>Learn more about JCEF in JetBrains IDEs</a></center></html>",
+            SwingConstants.CENTER
+        )
+        helpLabel.cursor = java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)
+        helpLabel.addMouseListener(object : java.awt.event.MouseAdapter() {
+            override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                com.intellij.ide.BrowserUtil.browse("https://www.jetbrains.com/help/idea/switching-boot-jdk.html")
+            }
+        })
+        panel.add(helpLabel, gbc)
+
+        return panel
     }
 
     private fun setupJsBridge() {
