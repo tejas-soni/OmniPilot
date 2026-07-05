@@ -161,6 +161,94 @@
             font-size: 13px;
         }
 
+        /* History Sidebar */
+        #history-sidebar {
+            position: absolute;
+            top: 0;
+            right: -300px;
+            width: 300px;
+            height: 100%;
+            background-color: var(--bg-color);
+            border-left: 1px solid #333;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.2);
+            transition: right 0.3s ease;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+        #history-sidebar.open {
+            right: 0;
+        }
+        .history-sidebar-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+        .history-sidebar-header svg {
+            width: 16px;
+            height: 16px;
+            fill: #a9b7c6;
+            cursor: pointer;
+        }
+        .history-sidebar-header svg:hover {
+            fill: #d4d4d4;
+        }
+        #history-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .history-item {
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #a9b7c6;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-item:hover, .history-item.active {
+            background-color: #2d2d2d;
+            color: #d4d4d4;
+        }
+        .history-item-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+        .history-item-delete {
+            opacity: 0;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+        .history-item-delete svg {
+            width: 14px;
+            height: 14px;
+            fill: #c75450;
+        }
+        .history-item:hover .history-item-delete {
+            opacity: 1;
+        }
+        .history-item-delete:hover svg {
+            fill: #e55a5a;
+        }
+        .history-group-title {
+            font-size: 11px;
+            color: #888;
+            margin-top: 12px;
+            margin-bottom: 4px;
+            padding-left: 4px;
+            text-transform: uppercase;
+        }
+
         /* Bottom Input Area */
         #input-wrapper {
             flex-shrink: 0;
@@ -451,6 +539,15 @@
         </div>
     </div>
 
+    <!-- History Sidebar -->
+    <div id="history-sidebar">
+        <div class="history-sidebar-header">
+            <span>Chat History</span>
+            <svg id="history-close-btn" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </div>
+        <div id="history-list"></div>
+    </div>
+
     <!-- Header -->
     <div id="header">
         <span>AI Chat</span>
@@ -699,42 +796,158 @@
 
         window.addEventListener('OmniPilotBridgeReady', () => {
             loadProviders();
-            loadHistory();
+            initHistory();
             createCustomDropdowns();
         });
 
         if (window.omniPilotGetProviders) {
             loadProviders();
-            loadHistory();
+            initHistory();
             createCustomDropdowns();
         }
 
-        // History persistence
-        async function saveHistory() {
-            if (window.omniPilotSaveHistory) {
-                await window.omniPilotSaveHistory(JSON.stringify(chatHistory));
+        let currentSessionId = null;
+        
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        async function initHistory() {
+            if (window.omniPilotGetChatSessions) {
+                try {
+                    const sessionsJson = await window.omniPilotGetChatSessions();
+                    const sessions = JSON.parse(sessionsJson);
+                    if (sessions.length > 0) {
+                        // Load the most recent session automatically
+                        await loadChatSession(sessions[0].id);
+                    } else {
+                        startNewChat();
+                    }
+                } catch(e) {
+                    console.error("Failed to init history", e);
+                }
             }
         }
         
-        async function loadHistory() {
-            if (window.omniPilotLoadHistory) {
+        async function saveHistory() {
+            if (!currentSessionId) {
+                currentSessionId = generateUUID();
+            }
+            if (window.omniPilotSaveChatSession) {
+                const title = chatHistory.length > 0 ? chatHistory[0].content.substring(0, 30) + (chatHistory[0].content.length > 30 ? "..." : "") : "New Chat";
+                const session = {
+                    id: currentSessionId,
+                    title: title,
+                    timestamp: Date.now(),
+                    messages: chatHistory
+                };
+                await window.omniPilotSaveChatSession(JSON.stringify(session));
+                loadSessionsSidebar(); // Refresh sidebar
+            }
+        }
+        
+        async function loadSessionsSidebar() {
+            if (window.omniPilotGetChatSessions) {
                 try {
-                    const historyJson = await window.omniPilotLoadHistory();
-                    if (historyJson && historyJson !== "[]") {
-                        const history = JSON.parse(historyJson);
-                        if (history.length > 0) {
-                            chatHistory = history;
-                            history.forEach(msg => {
-                                if (msg.role !== 'system') {
-                                    appendMessage(msg.role, msg.content, msg.role === 'agent' || msg.role === 'assistant');
-                                }
+                    const sessionsJson = await window.omniPilotGetChatSessions();
+                    const sessions = JSON.parse(sessionsJson);
+                    const list = document.getElementById('history-list');
+                    list.innerHTML = '';
+                    
+                    if (sessions.length === 0) {
+                        list.innerHTML = '<div style="color:#888; padding:8px;">No history yet.</div>';
+                        return;
+                    }
+
+                    // Group by date
+                    const now = new Date();
+                    const groups = { "Today": [], "Yesterday": [], "Previous 7 Days": [], "Older": [] };
+                    
+                    sessions.forEach(s => {
+                        const date = new Date(s.timestamp);
+                        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+                        if (diffDays === 0 && now.getDate() === date.getDate()) groups["Today"].push(s);
+                        else if (diffDays <= 1) groups["Yesterday"].push(s);
+                        else if (diffDays <= 7) groups["Previous 7 Days"].push(s);
+                        else groups["Older"].push(s);
+                    });
+                    
+                    for (const [groupName, groupSessions] of Object.entries(groups)) {
+                        if (groupSessions.length > 0) {
+                            const title = document.createElement('div');
+                            title.className = 'history-group-title';
+                            title.textContent = groupName;
+                            list.appendChild(title);
+                            
+                            groupSessions.forEach(s => {
+                                const item = document.createElement('div');
+                                item.className = 'history-item';
+                                if (s.id === currentSessionId) item.classList.add('active');
+                                
+                                const titleSpan = document.createElement('div');
+                                titleSpan.className = 'history-item-title';
+                                titleSpan.textContent = s.title;
+                                
+                                const delSpan = document.createElement('div');
+                                delSpan.className = 'history-item-delete';
+                                delSpan.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
+                                delSpan.onclick = async (e) => {
+                                    e.stopPropagation();
+                                    await window.omniPilotDeleteChatSession(s.id);
+                                    if (s.id === currentSessionId) {
+                                        startNewChat();
+                                    } else {
+                                        loadSessionsSidebar();
+                                    }
+                                };
+                                
+                                item.onclick = () => loadChatSession(s.id);
+                                
+                                item.appendChild(titleSpan);
+                                item.appendChild(delSpan);
+                                list.appendChild(item);
                             });
                         }
                     }
-                } catch(e) {
-                    console.error("Failed to load history", e);
+                } catch (e) {
+                    console.error("Failed to load sessions", e);
                 }
             }
+        }
+        
+        async function loadChatSession(id) {
+            if (window.omniPilotLoadChatSession) {
+                try {
+                    const sessionJson = await window.omniPilotLoadChatSession(id);
+                    if (sessionJson !== "null") {
+                        const session = JSON.parse(sessionJson);
+                        currentSessionId = session.id;
+                        chatHistory = session.messages || [];
+                        chatContainer.querySelectorAll('.message').forEach(e => e.remove());
+                        
+                        chatHistory.forEach(msg => {
+                            if (msg.role !== 'system') {
+                                appendMessage(msg.role, msg.content, msg.role === 'agent' || msg.role === 'assistant');
+                            }
+                        });
+                        loadSessionsSidebar();
+                        document.getElementById('history-sidebar').classList.remove('open');
+                    }
+                } catch(e) {
+                    console.error("Failed to load session", e);
+                }
+            }
+        }
+        
+        function startNewChat() {
+            currentSessionId = null;
+            chatHistory = [];
+            chatContainer.querySelectorAll('.message').forEach(e => e.remove());
+            loadSessionsSidebar();
+            document.getElementById('history-sidebar').classList.remove('open');
         }
 
         // Streaming Callbacks
@@ -902,10 +1115,18 @@
             if (emptyStateHelper) emptyStateHelper.style.display = 'flex';
         });
 
+        document.getElementById('new-chat-btn').addEventListener('click', () => {
+            startNewChat();
+        });
+
         document.getElementById('history-btn').addEventListener('click', () => {
-            alert('Chat History coming soon!');
+            loadSessionsSidebar();
+            document.getElementById('history-sidebar').classList.add('open');
         });
         
+        document.getElementById('history-close-btn').addEventListener('click', () => {
+            document.getElementById('history-sidebar').classList.remove('open');
+        });
         document.getElementById('more-options-btn').addEventListener('click', () => {
             alert('More options coming soon!');
         });

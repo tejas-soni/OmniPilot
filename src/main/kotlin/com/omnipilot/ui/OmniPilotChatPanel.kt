@@ -336,16 +336,45 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response("OK")
         }
 
-        val saveHistoryQuery = JBCefJSQuery.create(browser as JBCefBrowser)
-        saveHistoryQuery.addHandler { historyJson ->
-            com.intellij.ide.util.PropertiesComponent.getInstance(project).setValue("omniPilot.chatHistory", historyJson)
+        val getChatSessionsQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        getChatSessionsQuery.addHandler { _ ->
+            val sessions = com.omnipilot.history.OmniPilotHistoryManager.getSessions().map {
+                mapOf("id" to it.id, "title" to it.title, "timestamp" to it.timestamp)
+            }
+            JBCefJSQuery.Response(json.encodeToString(sessions))
+        }
+
+        val loadChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        loadChatSessionQuery.addHandler { id ->
+            val session = com.omnipilot.history.OmniPilotHistoryManager.getSession(id)
+            if (session != null) {
+                JBCefJSQuery.Response(json.encodeToString(session))
+            } else {
+                JBCefJSQuery.Response("null")
+            }
+        }
+
+        val saveChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        saveChatSessionQuery.addHandler { sessionJson ->
+            try {
+                val session = json.decodeFromString<com.omnipilot.history.ChatSession>(sessionJson)
+                com.omnipilot.history.OmniPilotHistoryManager.saveSession(session)
+                JBCefJSQuery.Response("OK")
+            } catch (e: Exception) {
+                JBCefJSQuery.Response(null, 500, e.message ?: "Error saving session")
+            }
+        }
+
+        val deleteChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        deleteChatSessionQuery.addHandler { id ->
+            com.omnipilot.history.OmniPilotHistoryManager.deleteSession(id)
             JBCefJSQuery.Response("OK")
         }
 
-        val loadHistoryQuery = JBCefJSQuery.create(browser as JBCefBrowser)
-        loadHistoryQuery.addHandler { _ ->
-            val historyJson = com.intellij.ide.util.PropertiesComponent.getInstance(project).getValue("omniPilot.chatHistory") ?: "[]"
-            JBCefJSQuery.Response(historyJson)
+        val clearAllHistoryQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        clearAllHistoryQuery.addHandler { _ ->
+            com.omnipilot.history.OmniPilotHistoryManager.clearAll()
+            JBCefJSQuery.Response("OK")
         }
 
         val openSettingsQuery = JBCefJSQuery.create(browser as JBCefBrowser)
@@ -453,20 +482,50 @@ class OmniPilotChatPanel(private val project: Project) {
                         });
                     };
                     
-                    window.omniPilotSaveHistory = function(jsonStr) {
+                    window.omniPilotGetChatSessions = function() {
                         return new Promise((resolve, reject) => {
                             try {
-                                ${saveHistoryQuery.inject("jsonStr", "resolve", "reject")}
+                                ${getChatSessionsQuery.inject("''", "resolve", "reject")}
                             } catch(e) {
                                 reject(e);
                             }
                         });
                     };
                     
-                    window.omniPilotLoadHistory = function() {
+                    window.omniPilotLoadChatSession = function(id) {
                         return new Promise((resolve, reject) => {
                             try {
-                                ${loadHistoryQuery.inject("''", "resolve", "reject")}
+                                ${loadChatSessionQuery.inject("id", "resolve", "reject")}
+                            } catch(e) {
+                                reject(e);
+                            }
+                        });
+                    };
+                    
+                    window.omniPilotSaveChatSession = function(jsonStr) {
+                        return new Promise((resolve, reject) => {
+                            try {
+                                ${saveChatSessionQuery.inject("jsonStr", "resolve", "reject")}
+                            } catch(e) {
+                                reject(e);
+                            }
+                        });
+                    };
+                    
+                    window.omniPilotDeleteChatSession = function(id) {
+                        return new Promise((resolve, reject) => {
+                            try {
+                                ${deleteChatSessionQuery.inject("id", "resolve", "reject")}
+                            } catch(e) {
+                                reject(e);
+                            }
+                        });
+                    };
+                    
+                    window.omniPilotClearAllHistory = function() {
+                        return new Promise((resolve, reject) => {
+                            try {
+                                ${clearAllHistoryQuery.inject("''", "resolve", "reject")}
                             } catch(e) {
                                 reject(e);
                             }
