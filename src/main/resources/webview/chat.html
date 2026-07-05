@@ -242,6 +242,72 @@
             color: #d4d4d4;
         }
 
+        /* Custom Dropdown for JCEF clipping fix */
+        .custom-select-wrapper {
+            position: relative;
+            user-select: none;
+            display: inline-block;
+        }
+        .custom-select-wrapper select {
+            display: none;
+        }
+        .custom-select-trigger {
+            background-color: transparent;
+            color: #a9b7c6;
+            padding: 4px 20px 4px 8px;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 4px;
+            background-image: url('data:image/svg+xml;utf8,<svg fill="%23a9b7c6" height="16" viewBox="0 0 24 24" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right 2px center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 150px;
+        }
+        .custom-select-trigger:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: #d4d4d4;
+        }
+        .custom-options {
+            position: absolute;
+            bottom: 100%; /* Open upwards to avoid clipping at bottom */
+            left: 0;
+            margin-bottom: 4px;
+            background-color: #3c3f41;
+            border: 1px solid #4d4d4d;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+            max-height: 250px;
+            overflow-y: auto;
+            min-width: 100%;
+        }
+        .custom-options.open {
+            display: block;
+        }
+        .custom-option {
+            padding: 6px 12px;
+            color: #a9b7c6;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .custom-option:hover {
+            background-color: #4b4d4d;
+            color: #fff;
+        }
+        .custom-option.selected {
+            background-color: rgba(53, 116, 240, 0.3);
+            color: #fff;
+        }
+        .custom-options::-webkit-scrollbar { width: 8px; }
+        .custom-options::-webkit-scrollbar-track { background: transparent; }
+        .custom-options::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        .custom-options::-webkit-scrollbar-thumb:hover { background: #777; }
+
         /* Icon Buttons */
         .icon-btn {
             background: none;
@@ -424,6 +490,61 @@
         let chatHistory = [];
         let isStreaming = false;
 
+        // Custom Dropdown Initialization for JCEF
+        function createCustomDropdowns() {
+            document.querySelectorAll('select').forEach(select => {
+                if (select.parentNode.classList.contains('custom-select-wrapper')) return;
+                
+                const wrapper = document.createElement('div');
+                wrapper.className = 'custom-select-wrapper';
+                select.parentNode.insertBefore(wrapper, select);
+                wrapper.appendChild(select);
+                
+                const trigger = document.createElement('div');
+                trigger.className = 'custom-select-trigger';
+                wrapper.appendChild(trigger);
+                
+                const optionsContainer = document.createElement('div');
+                optionsContainer.className = 'custom-options';
+                wrapper.appendChild(optionsContainer);
+                
+                function updateOptions() {
+                    optionsContainer.innerHTML = '';
+                    trigger.textContent = select.options[select.selectedIndex]?.textContent || '';
+                    Array.from(select.options).forEach((opt, idx) => {
+                        const optDiv = document.createElement('div');
+                        optDiv.className = 'custom-option' + (idx === select.selectedIndex ? ' selected' : '');
+                        optDiv.textContent = opt.textContent;
+                        optDiv.onclick = (e) => {
+                            select.selectedIndex = idx;
+                            trigger.textContent = opt.textContent;
+                            optionsContainer.classList.remove('open');
+                            select.dispatchEvent(new Event('change'));
+                            e.stopPropagation();
+                            Array.from(optionsContainer.children).forEach(c => c.classList.remove('selected'));
+                            optDiv.classList.add('selected');
+                        };
+                        optionsContainer.appendChild(optDiv);
+                    });
+                }
+                
+                updateOptions();
+                const observer = new MutationObserver(updateOptions);
+                observer.observe(select, { childList: true, attributes: true });
+                
+                trigger.onclick = (e) => {
+                    const isOpen = optionsContainer.classList.contains('open');
+                    document.querySelectorAll('.custom-options').forEach(c => c.classList.remove('open'));
+                    if (!isOpen) optionsContainer.classList.add('open');
+                    e.stopPropagation();
+                };
+            });
+            
+            document.addEventListener('click', () => {
+                document.querySelectorAll('.custom-options').forEach(c => c.classList.remove('open'));
+            });
+        }
+
         // Input focus styling
         promptInput.addEventListener('focus', () => inputContainer.classList.add('focused'));
         promptInput.addEventListener('blur', () => inputContainer.classList.remove('focused'));
@@ -516,11 +637,13 @@
         window.addEventListener('OmniPilotBridgeReady', () => {
             loadProviders();
             loadHistory();
+            createCustomDropdowns();
         });
 
         if (window.omniPilotGetProviders) {
             loadProviders();
             loadHistory();
+            createCustomDropdowns();
         }
 
         // History persistence
