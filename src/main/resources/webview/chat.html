@@ -359,11 +359,56 @@
             margin-top: 4px;
         }
 
-        /* SVG Icons */
         svg {
             width: 16px;
             height: 16px;
             fill: currentColor;
+        }
+
+        /* No-models banner */
+        #no-models-banner {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 24px 20px;
+            margin: 12px 16px;
+            background: linear-gradient(135deg, rgba(53,116,240,0.08) 0%, rgba(0,229,255,0.05) 100%);
+            border: 1px solid rgba(53,116,240,0.25);
+            border-radius: 10px;
+            text-align: center;
+        }
+        #no-models-banner.visible {
+            display: flex;
+        }
+        #no-models-banner .banner-icon {
+            font-size: 28px;
+            line-height: 1;
+        }
+        #no-models-banner .banner-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #d4d4d4;
+        }
+        #no-models-banner .banner-desc {
+            font-size: 12px;
+            color: #8c8c8c;
+            line-height: 1.5;
+        }
+        #open-settings-btn {
+            background: var(--input-border-focus);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        #open-settings-btn:hover {
+            opacity: 0.85;
         }
         /* Permission Dialog */
         #permission-dialog {
@@ -418,6 +463,13 @@
 
     <!-- Chat Area -->
     <div id="chat-container">
+        <!-- No-models banner: shown when current provider has no models configured -->
+        <div id="no-models-banner">
+            <div class="banner-icon">🤖</div>
+            <div class="banner-title">No Models Configured</div>
+            <div class="banner-desc">This provider has no models added yet.<br>Go to Settings to fetch or add models for it.</div>
+            <button id="open-settings-btn">⚙ Open Settings</button>
+        </div>
         <div id="empty-state-helper">
             <div class="helper-row">
                 <span>Multiline code completion</span>
@@ -614,6 +666,8 @@
         function updateModelsDropdown() {
             const providerId = providerSelect.value;
             const provider = loadedProviders.find(p => p.id === providerId);
+            const banner = document.getElementById('no-models-banner');
+            const inputWrapper = document.getElementById('input-wrapper');
             
             modelSelect.innerHTML = '';
             
@@ -624,12 +678,20 @@
                     opt.textContent = modelName;
                     modelSelect.appendChild(opt);
                 });
+                // Hide banner, enable input
+                banner.classList.remove('visible');
+                inputWrapper.style.display = '';
             } else {
                 const opt = document.createElement('option');
                 opt.value = "";
-                opt.textContent = "No models available";
+                opt.textContent = "No models";
                 modelSelect.appendChild(opt);
+                // Show banner, hide input area so user can't send
+                banner.classList.add('visible');
+                inputWrapper.style.display = 'none';
             }
+            // Rebuild custom dropdowns after option changes
+            createCustomDropdowns();
         }
 
         providerSelect.addEventListener('change', updateModelsDropdown);
@@ -845,6 +907,13 @@
         
         document.getElementById('more-options-btn').addEventListener('click', () => {
             alert('More options coming soon!');
+        });
+
+        // No-models banner: Open Settings button
+        document.getElementById('open-settings-btn').addEventListener('click', () => {
+            if (window.omniPilotOpenSettings) {
+                window.omniPilotOpenSettings();
+            }
         });
         
         document.getElementById('attach-btn').addEventListener('click', async () => {

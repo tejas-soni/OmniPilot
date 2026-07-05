@@ -246,6 +246,15 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response(historyJson)
         }
 
+        val openSettingsQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        openSettingsQuery.addHandler { _ ->
+            com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
+                com.intellij.openapi.options.ShowSettingsUtil.getInstance()
+                    .showSettingsDialog(project, com.omnipilot.settings.OmniPilotConfigurable::class.java)
+            }
+            JBCefJSQuery.Response("OK")
+        }
+
         val showDiffQuery = JBCefJSQuery.create(browser as JBCefBrowser)
         showDiffQuery.addHandler { argsStr ->
             try {
@@ -356,6 +365,16 @@ class OmniPilotChatPanel(private val project: Project) {
                         return new Promise((resolve, reject) => {
                             try {
                                 ${loadHistoryQuery.inject("''", "resolve", "reject")}
+                            } catch(e) {
+                                reject(e);
+                            }
+                        });
+                    };
+                    
+                    window.omniPilotOpenSettings = function() {
+                        return new Promise((resolve, reject) => {
+                            try {
+                                ${openSettingsQuery.inject("''", "resolve", "reject")}
                             } catch(e) {
                                 reject(e);
                             }
