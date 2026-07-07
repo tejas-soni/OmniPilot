@@ -138,20 +138,20 @@ class OmniPilotChatPanel(private val project: Project) {
         fixBtn.font = Font("Dialog", Font.BOLD, 12)
         fixBtn.preferredSize = Dimension(240, 34)
         fixBtn.cursor = java.awt.Cursor(java.awt.Cursor.HAND_CURSOR)
-        fixBtn.addActionListener {
+        fixBtn.addActionListener { actionEvent ->
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                 // Trigger the "Choose Boot Runtime for the IDE" action directly
                 val actionManager = com.intellij.openapi.actionSystem.ActionManager.getInstance()
                 val action = actionManager.getAction("ChooseBootRuntimeAction")
                     ?: actionManager.getAction("com.intellij.ide.actions.ChooseBootRuntimeAction")
                 if (action != null) {
-                    val event = com.intellij.openapi.actionSystem.AnActionEvent.createFromAnAction(
+                    com.intellij.openapi.actionSystem.ActionManager.getInstance().tryToExecute(
                         action,
                         null,
+                        fixBtn,
                         com.intellij.openapi.actionSystem.ActionPlaces.UNKNOWN,
-                        com.intellij.openapi.actionSystem.impl.SimpleDataContext.getProjectContext(project)
+                        true
                     )
-                    action.actionPerformed(event)
                 } else {
                     // Fallback: open the JetBrains help page
                     com.intellij.ide.BrowserUtil.browse("https://www.jetbrains.com/help/idea/switching-boot-jdk.html")
@@ -180,7 +180,7 @@ class OmniPilotChatPanel(private val project: Project) {
         if (browser == null) return
 
         // Query 1: For sending a prompt
-        val chatQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val chatQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         chatQuery.addHandler { requestStr: String ->
             try {
                 val payload = json.decodeFromString<ChatPayload>(requestStr)
@@ -263,13 +263,13 @@ class OmniPilotChatPanel(private val project: Project) {
         }
 
         // Query 2: For getting providers
-        val cancelQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val cancelQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         cancelQuery.addHandler { _ ->
             apiClient.cancelCurrentStream()
             JBCefJSQuery.Response("OK")
         }
 
-        val attachQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val attachQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         attachQuery.addHandler { _ ->
             var selectedFile = ""
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
@@ -290,7 +290,7 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response(selectedFile)
         }
 
-        val providersQuery = JBCefJSQuery.create(browser)
+        val providersQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         providersQuery.addHandler { _ ->
             val settings = OmniPilotSettingsState.instance
             val dtoList = settings.providers.map { 
@@ -301,13 +301,13 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response(jsonStr)
         }
 
-        val permissionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val permissionQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         permissionQuery.addHandler { responseStr ->
             currentPermissionFuture?.complete(responseStr)
             JBCefJSQuery.Response("OK")
         }
 
-        val insertQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val insertQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         insertQuery.addHandler { encodedCode ->
             val code = java.net.URLDecoder.decode(encodedCode, Charsets.UTF_8)
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
@@ -325,7 +325,7 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response("OK")
         }
 
-        val newFileQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val newFileQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         newFileQuery.addHandler { encodedCode ->
             val code = java.net.URLDecoder.decode(encodedCode, Charsets.UTF_8)
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
@@ -339,7 +339,7 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response("OK")
         }
 
-        val getChatSessionsQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val getChatSessionsQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         getChatSessionsQuery.addHandler { _ ->
             try {
                 val sessions = com.omnipilot.history.OmniPilotHistoryManager.getSessions().map {
@@ -351,7 +351,7 @@ class OmniPilotChatPanel(private val project: Project) {
             }
         }
 
-        val loadChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val loadChatSessionQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         loadChatSessionQuery.addHandler { id ->
             val session = com.omnipilot.history.OmniPilotHistoryManager.getSession(id)
             if (session != null) {
@@ -361,7 +361,7 @@ class OmniPilotChatPanel(private val project: Project) {
             }
         }
 
-        val saveChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val saveChatSessionQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         saveChatSessionQuery.addHandler { sessionJson ->
             try {
                 val session = json.decodeFromString<com.omnipilot.history.ChatSession>(sessionJson)
@@ -372,19 +372,19 @@ class OmniPilotChatPanel(private val project: Project) {
             }
         }
 
-        val deleteChatSessionQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val deleteChatSessionQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         deleteChatSessionQuery.addHandler { id ->
             com.omnipilot.history.OmniPilotHistoryManager.deleteSession(id)
             JBCefJSQuery.Response("OK")
         }
 
-        val clearAllHistoryQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val clearAllHistoryQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         clearAllHistoryQuery.addHandler { _ ->
             com.omnipilot.history.OmniPilotHistoryManager.clearAll()
             JBCefJSQuery.Response("OK")
         }
 
-        val openSettingsQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val openSettingsQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         openSettingsQuery.addHandler { _ ->
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                 com.intellij.openapi.options.ShowSettingsUtil.getInstance()
@@ -393,7 +393,7 @@ class OmniPilotChatPanel(private val project: Project) {
             JBCefJSQuery.Response("OK")
         }
 
-        val showDiffQuery = JBCefJSQuery.create(browser as JBCefBrowser)
+        val showDiffQuery = JBCefJSQuery.create(browser as com.intellij.ui.jcef.JBCefBrowserBase)
         showDiffQuery.addHandler { argsStr ->
             try {
                 val args = json.decodeFromString<JsonObject>(argsStr)

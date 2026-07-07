@@ -157,9 +157,17 @@ object OmniPilotAgentTools {
                         val widgetReady = CompletableFuture<Unit>()
                         com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                             try {
-                                val terminalView = org.jetbrains.plugins.terminal.TerminalView.getInstance(project)
-                                val widget = terminalView.createLocalShellWidget(basePath, "OmniPilot")
-                                widget.executeCommand(wrappedCommand.joinToString(" ") { if (it.contains(" ")) "\"$it\"" else it })
+                                val terminalViewClass = try {
+                                    Class.forName("org.jetbrains.plugins.terminal.TerminalToolWindowManager")
+                                } catch (e: ClassNotFoundException) {
+                                    Class.forName("org.jetbrains.plugins.terminal.TerminalView")
+                                }
+                                val getInstanceMethod = terminalViewClass.getMethod("getInstance", Project::class.java)
+                                val terminalInstance = getInstanceMethod.invoke(null, project)
+                                val createWidgetMethod = terminalViewClass.getMethod("createLocalShellWidget", String::class.java, String::class.java)
+                                val widget = createWidgetMethod.invoke(terminalInstance, basePath, "OmniPilot")
+                                val executeCommandMethod = widget.javaClass.getMethod("executeCommand", String::class.java)
+                                executeCommandMethod.invoke(widget, wrappedCommand.joinToString(" ") { if (it.contains(" ")) "\"$it\"" else it })
                                 widgetReady.complete(Unit)
                             } catch (e: Exception) {
                                 widgetReady.completeExceptionally(e)

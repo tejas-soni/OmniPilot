@@ -6,7 +6,7 @@ import com.intellij.ide.passwordSafe.PasswordSafe
 
 object CredentialManager {
     private fun createCredentialAttributes(providerId: String): CredentialAttributes {
-        return CredentialAttributes("OmniPilot-$providerId", "omnipilot_user")
+        return CredentialAttributes(com.intellij.credentialStore.generateServiceName("OmniPilot-$providerId", "omnipilot_user"))
     }
 
     fun getApiKey(providerId: String): String? {

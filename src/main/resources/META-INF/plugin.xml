@@ -19,6 +19,5 @@
                                  
         <toolWindow id="OmniPilot" anchor="right" icon="/icons/toolWindowIcon.svg" factoryClass="com.omnipilot.ui.OmniPilotToolWindowFactory"/>
         
-        <inline.completionProvider implementation="com.omnipilot.completion.OmniPilotInlineCompletionProvider"/>
     </extensions>
 </idea-plugin>

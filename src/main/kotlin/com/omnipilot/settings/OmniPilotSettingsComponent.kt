@@ -96,8 +96,8 @@ class OmniPilotSettingsComponent {
                     modelsTableModel.removeRow(selectedRows[i])
                 }
             }
-            .addExtraAction(object : AnActionButton("Fetch Models", AllIcons.Actions.Refresh) {
-                override fun actionPerformed(e: AnActionEvent) {
+            .addExtraAction(object : com.intellij.openapi.actionSystem.AnAction("Fetch Models", null, com.intellij.icons.AllIcons.Actions.Refresh) {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                     fetchModels()
                 }
             })
