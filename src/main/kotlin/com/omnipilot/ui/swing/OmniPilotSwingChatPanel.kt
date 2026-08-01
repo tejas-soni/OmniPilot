@@ -30,10 +30,10 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
-import javax.swing.*
 import javax.swing.border.AbstractBorder
 import javax.swing.border.CompoundBorder
 import javax.swing.border.EmptyBorder
+import javax.swing.border.LineBorder
 import javax.swing.border.MatteBorder
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
@@ -529,7 +529,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
                 }
             }
             override fun mouseClicked(e: MouseEvent) {
-                if (e.target != delBtn) {
+                if (e.source != delBtn && e.component != delBtn) {
                     loadSession(sess.id)
                 }
             }
@@ -546,9 +546,9 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         messageContainer.removeAll()
         for (m in currentMessages) {
             if (m.role == "user") {
-                appendUserBubble(m.content)
+                appendUserBubble(m.content ?: "")
             } else if (m.role == "assistant") {
-                appendAssistantBubble(m.content)
+                appendAssistantBubble(m.content ?: "")
             }
         }
 
@@ -909,7 +909,7 @@ enum class IconType { CLOCK, MORE, PLUS, CLOSE, TRASH, SEND, STOP }
 class IconButton(
     private var iconType: IconType = IconType.CLOCK,
     tooltip: String = "",
-    private val onClick: (() -> Unit)? = null
+    private var onClickListener: (() -> Unit)? = null
 ) : JLabel() {
     private var isHovered = false
     private var isActive = false
@@ -922,8 +922,12 @@ class IconButton(
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { isHovered = true; repaint() }
             override fun mouseExited(e: MouseEvent) { isHovered = false; repaint() }
-            override fun mouseClicked(e: MouseEvent) { onClick?.invoke() }
+            override fun mouseClicked(e: MouseEvent) { onClickListener?.invoke() }
         })
+    }
+
+    fun addActionListener(listener: () -> Unit) {
+        this.onClickListener = listener
     }
 
     fun setIconType(type: IconType) {
