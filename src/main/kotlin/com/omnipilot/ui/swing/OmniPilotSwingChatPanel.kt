@@ -96,6 +96,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         messageContainer.add(emptyStateHelper)
 
         scrollPane = JBScrollPane(messageContainer as Component)
+        scrollPane.horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         scrollPane.border = null
         scrollPane.background = Color(0x1e, 0x1e, 0x1e)
         scrollPane.viewport.background = Color(0x1e, 0x1e, 0x1e)
@@ -877,27 +878,47 @@ class AssistantMessagePanel(private val project: Project, initialText: String) :
 
     private fun render() {
         contentPanel.removeAll()
-        val text = rawText.toString()
+        var text = rawText.toString()
 
-        // Split text by markdown code blocks ```lang ... ```
-        val codeBlockRegex = Regex("```(?:[a-zA-Z]+)?\n([\\s\\S]*?)```")
-        var lastIdx = 0
-
-        for (match in codeBlockRegex.findAll(text)) {
-            val start = match.range.first
-            if (start > lastIdx) {
-                val markdownSnippet = text.substring(lastIdx, start)
-                contentPanel.add(createHtmlPane(markdownSnippet))
+        // Extract <think>...</think> block if present
+        var thinkText: String? = null
+        if (text.contains("<think>")) {
+            val thinkStart = text.indexOf("<think>") + 7
+            val thinkEnd = text.indexOf("</think>")
+            if (thinkEnd > thinkStart) {
+                thinkText = text.substring(thinkStart, thinkEnd).trim()
+                text = text.substring(thinkEnd + 8).trim()
+            } else {
+                thinkText = text.substring(thinkStart).trim()
+                text = ""
             }
-
-            val codeSnippet = match.groupValues[1]
-            contentPanel.add(CodeBlockPanel(project, codeSnippet))
-            lastIdx = match.range.last + 1
         }
 
-        if (lastIdx < text.length) {
-            val remainingSnippet = text.substring(lastIdx)
-            contentPanel.add(createHtmlPane(remainingSnippet))
+        if (!thinkText.isNullOrEmpty()) {
+            contentPanel.add(CollapsibleThinkingPanel(thinkText))
+        }
+
+        if (text.isNotEmpty()) {
+            // Split text by markdown code blocks ```lang ... ```
+            val codeBlockRegex = Regex("```(?:[a-zA-Z]+)?\n([\\s\\S]*?)```")
+            var lastIdx = 0
+
+            for (match in codeBlockRegex.findAll(text)) {
+                val start = match.range.first
+                if (start > lastIdx) {
+                    val markdownSnippet = text.substring(lastIdx, start)
+                    contentPanel.add(createHtmlPane(markdownSnippet))
+                }
+
+                val codeSnippet = match.groupValues[1]
+                contentPanel.add(CodeBlockPanel(project, codeSnippet))
+                lastIdx = match.range.last + 1
+            }
+
+            if (lastIdx < text.length) {
+                val remainingSnippet = text.substring(lastIdx)
+                contentPanel.add(createHtmlPane(remainingSnippet))
+            }
         }
 
         contentPanel.revalidate()
@@ -916,11 +937,52 @@ class AssistantMessagePanel(private val project: Project, initialText: String) :
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace(Regex("\\*\\*([^*]+)\\*\\*"), "<b>$1</b>")
-            .replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:13px;'>$1</code>")
+            .replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:12px;'>$1</code>")
             .replace("\n", "<br>")
 
-        pane.text = "<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:14px; line-height:1.5;'>$html</body></html>"
+        pane.text = "<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:13px; line-height:1.4;'>$html</body></html>"
         return pane
+    }
+}
+
+// --- COLLAPSIBLE THINKING PROCESS PANEL ---
+
+class CollapsibleThinkingPanel(private val thinkText: String) : JPanel(BorderLayout()) {
+    private var isExpanded = false
+    private val contentPane = JEditorPane("text/html", "").apply {
+        isEditable = false
+        isOpaque = false
+        background = Color(0x1e, 0x1e, 0x1e)
+        border = EmptyBorder(4, 12, 8, 4)
+        isVisible = false
+        val html = thinkText.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        text = "<html><body style='color:#7a7a7a; font-family:Inter, sans-serif; font-size:11px; line-height:1.4;'>$html</body></html>"
+    }
+
+    init {
+        isOpaque = false
+        border = EmptyBorder(4, 0, 6, 0)
+        alignmentX = Component.LEFT_ALIGNMENT
+
+        val headerLbl = JLabel("▶ Thought process").apply {
+            font = Font("Inter", Font.PLAIN, 12)
+            foreground = Color(0x7a, 0x7a, 0x7a)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    isExpanded = !isExpanded
+                    text = if (isExpanded) "▼ Thought process" else "▶ Thought process"
+                    contentPane.isVisible = isExpanded
+                    revalidate()
+                    repaint()
+                }
+                override fun mouseEntered(e: MouseEvent) { foreground = Color(0xa9, 0xb7, 0xc6) }
+                override fun mouseExited(e: MouseEvent) { foreground = Color(0x7a, 0x7a, 0x7a) }
+            })
+        }
+
+        add(headerLbl, BorderLayout.NORTH)
+        add(contentPane, BorderLayout.CENTER)
     }
 }
 
@@ -1237,9 +1299,9 @@ class CustomSendIconButton : JLabel() {
 class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
     init {
         isOpaque = false
-        border = EmptyBorder(4, 10, 4, 10)
+        border = EmptyBorder(2, 8, 2, 8)
         val cleanHtml = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:14px; line-height:1.4;'>$cleanHtml</body></html>")
+        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:13px; line-height:1.4;'>$cleanHtml</body></html>")
         add(lbl, BorderLayout.CENTER)
     }
 
@@ -1248,9 +1310,9 @@ class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
         g2.color = Color(0x2b, 0x2d, 0x30)
-        g2.fillRoundRect(0, 0, width - 1, height - 1, 8, 8)
+        g2.fillRoundRect(0, 0, width - 1, height - 1, 6, 6)
         g2.color = Color(0x3c, 0x3f, 0x41)
-        g2.drawRoundRect(0, 0, width - 1, height - 1, 8, 8)
+        g2.drawRoundRect(0, 0, width - 1, height - 1, 6, 6)
         g2.dispose()
         super.paintComponent(g)
     }
