@@ -72,7 +72,7 @@ class JsonRpcClient(
     private fun readLoop() {
         try {
             val buffer = ByteArray(8192)
-            var bytesRead: Int
+            var bytesRead = 0
             val byteBuffer = java.io.ByteArrayOutputStream()
 
             while (isRunning && inputStream.read(buffer).also { bytesRead = it } != -1) {

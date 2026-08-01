@@ -2,7 +2,6 @@ package com.omnipilot.server
 
 import com.intellij.openapi.project.Project
 import com.omnipilot.api.OmniPilotAgentTools
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
