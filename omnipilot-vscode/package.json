@@ -1,0 +1,49 @@
+{
+  "name": "omnipilot-vscode",
+  "displayName": "OmniPilot - Bring Your Own Model",
+  "description": "OmniPilot AI coding assistant extension for VS Code",
+  "version": "1.1.0",
+  "publisher": "omnipilot",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:omnipilot.chatView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "omnipilot-sidebar",
+          "title": "OmniPilot",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "omnipilot-sidebar": [
+        {
+          "type": "webview",
+          "id": "omnipilot.chatView",
+          "name": "AI Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.3.3"
+  }
+}
