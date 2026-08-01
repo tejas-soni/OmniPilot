@@ -8,7 +8,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBScrollPane
 import com.omnipilot.actions.ContextService
 import com.omnipilot.server.OmniPilotProcessManager
-import com.omnipilot.settings.OmniPilotSettingsConfigurable
+import com.omnipilot.settings.OmniPilotConfigurable
 import com.omnipilot.settings.OmniPilotSettingsListener
 import com.omnipilot.settings.OmniPilotSettingsState
 import kotlinx.serialization.json.Json
@@ -28,6 +28,7 @@ import javax.swing.*
 import javax.swing.border.CompoundBorder
 import javax.swing.border.EmptyBorder
 import javax.swing.border.LineBorder
+import javax.swing.border.MatteBorder
 
 class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -134,7 +135,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val settingsBtn = JButton("⚙ Settings")
         styleHeaderButton(settingsBtn)
         settingsBtn.addActionListener {
-            ShowSettingsUtil.getInstance().showSettingsDialog(project, OmniPilotSettingsConfigurable::class.java)
+            ShowSettingsUtil.getInstance().showSettingsDialog(project, OmniPilotConfigurable::class.java)
         }
         actionsPanel.add(settingsBtn)
 
