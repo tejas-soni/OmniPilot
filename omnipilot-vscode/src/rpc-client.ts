@@ -14,7 +14,7 @@ export class OmniPilotRpcClient {
 
   constructor(extensionUri: vscode.Uri) {
     this.serverPath = path.join(
-      extensionUri.fsPath, '..', 'omnipilot-core', 'dist', 'omnipilot-server.js'
+      extensionUri.fsPath, 'dist', 'omnipilot-server.js'
     );
   }
 

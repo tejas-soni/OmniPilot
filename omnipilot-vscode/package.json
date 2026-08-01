@@ -91,7 +91,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "node ../omnipilot-core/node_modules/esbuild/bin/esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --outfile=dist/extension.js"
+    "compile": "node ../omnipilot-core/node_modules/esbuild/bin/esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --outfile=dist/extension.js && node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('../omnipilot-core/dist/omnipilot-server.js','dist/omnipilot-server.js');\""
   },
   "devDependencies": {
     "@types/node": "^18.x",

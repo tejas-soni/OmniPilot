@@ -96,6 +96,64 @@ function updateStatusBar(): void {
   }
 }
 
+/**
+ * Fetches available models directly from the provider API using Node.js https/http.
+ * Does NOT go through the omnipilot-server child process.
+ */
+async function fetchModelsDirectly(baseUrl: string, apiKey: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    const targetUrl = `${cleanBase}/models`;
+
+    let urlObj: URL;
+    try {
+      urlObj = new URL(targetUrl);
+    } catch {
+      reject(new Error(`Invalid URL: ${targetUrl}`));
+      return;
+    }
+
+    const isHttps = urlObj.protocol === 'https:';
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const transport = isHttps ? require('https') : require('http');
+
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port ? parseInt(urlObj.port, 10) : (isHttps ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        ...(apiKey.trim() ? { 'Authorization': `Bearer ${apiKey.trim()}` } : {})
+      }
+    };
+
+    const req = transport.request(options, (res: any) => {
+      let data = '';
+      res.on('data', (chunk: any) => { data += chunk.toString(); });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json && Array.isArray(json.data)) {
+            resolve(json.data.map((m: any) => (m.id || m.name || '')).filter(Boolean));
+          } else {
+            resolve([]);
+          }
+        } catch {
+          reject(new Error(`Failed to parse response: ${data.slice(0, 200)}`));
+        }
+      });
+    });
+
+    req.on('error', (err: Error) => reject(err));
+    req.setTimeout(10000, () => {
+      req.destroy();
+      reject(new Error('Request timed out after 10s'));
+    });
+    req.end();
+  });
+}
+
 function openSettingsPanel(context: vscode.ExtensionContext): void {
   if (settingsPanel) {
     settingsPanel.reveal(vscode.ViewColumn.One);
@@ -144,11 +202,7 @@ function openSettingsPanel(context: vscode.ExtensionContext): void {
       }
       case 'fetchModels': {
         try {
-          // fetchModels returns string[] directly (not { models: string[] })
-          const models = await client?.sendRequest<string[]>('models/fetch', {
-            baseUrl: msg.baseUrl,
-            apiKey: msg.apiKey
-          }) ?? [];
+          const models = await fetchModelsDirectly(msg.baseUrl, msg.apiKey ?? '');
           settingsPanel?.webview.postMessage({ type: 'modelsResult', providerId: msg.providerId, models });
         } catch (e: any) {
           settingsPanel?.webview.postMessage({ type: 'modelsError', providerId: msg.providerId, error: e?.message ?? String(e) });
