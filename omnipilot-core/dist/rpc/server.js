@@ -1,8 +1,5 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.RpcServer = void 0;
-const protocol_js_1 = require("./protocol.js");
-class RpcServer {
+import { RPC_ERROR_CODES, RPC_METHODS } from './protocol.js';
+export class RpcServer {
     handlers = new Map();
     pendingRequests = new Map();
     buffer = Buffer.alloc(0);
@@ -15,7 +12,7 @@ class RpcServer {
         this.registerDefaultHandlers();
     }
     registerDefaultHandlers() {
-        this.registerHandler(protocol_js_1.RPC_METHODS.INITIALIZE, (params) => {
+        this.registerHandler(RPC_METHODS.INITIALIZE, (params) => {
             return {
                 serverVersion: '1.1.0',
                 status: 'ok',
@@ -65,11 +62,11 @@ class RpcServer {
             msg = JSON.parse(rawJson);
         }
         catch (e) {
-            this.sendError(null, protocol_js_1.RPC_ERROR_CODES.PARSE_ERROR, 'Parse error: invalid JSON');
+            this.sendError(null, RPC_ERROR_CODES.PARSE_ERROR, 'Parse error: invalid JSON');
             return;
         }
         if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') {
-            this.sendError(msg?.id ?? null, protocol_js_1.RPC_ERROR_CODES.INVALID_REQUEST, 'Invalid Request: jsonrpc must be "2.0"');
+            this.sendError(msg?.id ?? null, RPC_ERROR_CODES.INVALID_REQUEST, 'Invalid Request: jsonrpc must be "2.0"');
             return;
         }
         // Is it a response to an outbound request we sent?
@@ -89,13 +86,13 @@ class RpcServer {
         // Request or Notification
         const method = msg.method;
         if (typeof method !== 'string') {
-            this.sendError(msg.id ?? null, protocol_js_1.RPC_ERROR_CODES.INVALID_REQUEST, 'Method name must be a string');
+            this.sendError(msg.id ?? null, RPC_ERROR_CODES.INVALID_REQUEST, 'Method name must be a string');
             return;
         }
         const handler = this.handlers.get(method);
         if (!handler) {
             if ('id' in msg && msg.id !== null) {
-                this.sendError(msg.id, protocol_js_1.RPC_ERROR_CODES.METHOD_NOT_FOUND, `Method not found: ${method}`);
+                this.sendError(msg.id, RPC_ERROR_CODES.METHOD_NOT_FOUND, `Method not found: ${method}`);
             }
             return;
         }
@@ -109,7 +106,7 @@ class RpcServer {
         })
             .catch((err) => {
             if ('id' in msg && msg.id !== null) {
-                const code = err?.code ?? protocol_js_1.RPC_ERROR_CODES.INTERNAL_ERROR;
+                const code = err?.code ?? RPC_ERROR_CODES.INTERNAL_ERROR;
                 const message = err?.message ?? 'Internal server error';
                 this.sendError(msg.id, code, message, err?.data);
             }
@@ -159,4 +156,3 @@ class RpcServer {
         this.output.write(header + jsonStr);
     }
 }
-exports.RpcServer = RpcServer;

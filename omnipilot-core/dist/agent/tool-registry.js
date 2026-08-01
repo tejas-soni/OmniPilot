@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ToolRegistry = void 0;
-class ToolRegistry {
+export class ToolRegistry {
     static getAgentTools() {
         return [
             {
@@ -62,4 +59,3 @@ class ToolRegistry {
         ];
     }
 }
-exports.ToolRegistry = ToolRegistry;

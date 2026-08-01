@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.RPC_METHODS = exports.RPC_ERROR_CODES = void 0;
-exports.RPC_ERROR_CODES = {
+export const RPC_ERROR_CODES = {
     PARSE_ERROR: -32700,
     INVALID_REQUEST: -32600,
     METHOD_NOT_FOUND: -32601,
@@ -10,7 +7,7 @@ exports.RPC_ERROR_CODES = {
     PERMISSION_DENIED: -32001,
     LLM_STREAM_ERROR: -32002
 };
-exports.RPC_METHODS = {
+export const RPC_METHODS = {
     INITIALIZE: 'initialize',
     CHAT_SEND: 'chat/send',
     CHAT_CANCEL: 'chat/cancel',

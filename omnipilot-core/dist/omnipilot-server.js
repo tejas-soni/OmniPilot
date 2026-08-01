@@ -575,4 +575,3 @@ server.registerHandler(RPC_METHODS.CHAT_SEND, async (params) => {
 server.start();
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
-//# sourceMappingURL=omnipilot-server.js.map

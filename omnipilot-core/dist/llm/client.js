@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.LlmClient = void 0;
-class LlmClient {
+export class LlmClient {
     activeAbortController = null;
     cancelStream() {
         if (this.activeAbortController) {
@@ -110,4 +107,3 @@ class LlmClient {
         }
     }
 }
-exports.LlmClient = LlmClient;

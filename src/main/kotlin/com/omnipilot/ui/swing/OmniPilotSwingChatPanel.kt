@@ -48,6 +48,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     // Layered Container for Sliding Sidebar & Permission Glass Pane
     private val layeredPane = JLayeredPane()
+    private val contentHostPanel = JPanel(BorderLayout())
     private val mainContentPanel = JPanel(BorderLayout())
     private val messageContainer = JPanel()
     private val scrollPane: JBScrollPane
@@ -80,6 +81,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     init {
         background = Color(0x1e, 0x1e, 0x1e)
+        contentHostPanel.background = Color(0x1e, 0x1e, 0x1e)
         mainContentPanel.background = Color(0x1e, 0x1e, 0x1e)
 
         // 1. TOP HEADER (AI Chat | + New Chat | History Icon | Settings Icon)
@@ -108,10 +110,11 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
         // 4. LAYERED PANE SETUP
         layeredPane.layout = null
-        layeredPane.add(mainContentPanel, JLayeredPane.DEFAULT_LAYER)
+        contentHostPanel.add(mainContentPanel, BorderLayout.CENTER)
 
         setupHistoryOverlay()
-        layeredPane.add(historyOverlay, JLayeredPane.PALETTE_LAYER)
+        contentHostPanel.add(historyOverlay, BorderLayout.EAST)
+        layeredPane.add(contentHostPanel, JLayeredPane.DEFAULT_LAYER)
 
         setupPermissionOverlay()
         layeredPane.add(permissionOverlay, JLayeredPane.MODAL_LAYER)
@@ -124,6 +127,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
                 updateLayeredBounds()
             }
         })
+        SwingUtilities.invokeLater { updateLayeredBounds() }
 
         // Initial Data Load
         modeDropdown.setItems(listOf("Chat (Ask)", "Agent (Auto)", "Read-Only"))
@@ -132,13 +136,19 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         setupServerListeners()
     }
 
-    private fun toggleHistoryDrawer() {
-        isHistoryOpen = !isHistoryOpen
-        historyOverlay.isVisible = isHistoryOpen
+    private fun setHistoryDrawerOpen(open: Boolean) {
+        isHistoryOpen = open
+        historyOverlay.isVisible = open
         if (isHistoryOpen) {
             fetchHistoryFromStore()
         }
+        contentHostPanel.revalidate()
+        contentHostPanel.repaint()
         updateLayeredBounds()
+    }
+
+    private fun toggleHistoryDrawer() {
+        setHistoryDrawerOpen(!isHistoryOpen)
     }
 
     private fun updateLayeredBounds() {
@@ -146,11 +156,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val h = if (layeredPane.height > 0) layeredPane.height else height
         if (w <= 0 || h <= 0) return
 
-        mainContentPanel.setBounds(0, 0, w, h)
-
-        val sidebarW = (w * 0.8).toInt().coerceIn(240, 320)
-        val targetX = if (isHistoryOpen) w - sidebarW else w
-        historyOverlay.setBounds(targetX, 0, sidebarW, h)
+        contentHostPanel.setBounds(0, 0, w, h)
 
         if (permissionOverlay.isVisible) {
             permissionOverlay.setBounds(20, 20, w - 40, 180)
@@ -357,6 +363,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         }
 
         val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply { isOpaque = false }
+        val rightGroup = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { isOpaque = false }
         val attachBtn = SvgIconButton(SvgType.PLUS, "Attach Context") {
             // Attach context
         }
@@ -365,14 +372,13 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         providerDropdown.setOnSelect { onProviderSelected() }
         leftGroup.add(providerDropdown)
 
-        leftGroup.add(modelDropdown)
-
-        leftGroup.add(modeDropdown)
-
         toolbar.add(leftGroup, BorderLayout.WEST)
 
+        rightGroup.add(modelDropdown)
+        rightGroup.add(modeDropdown)
         sendBtn.setOnClickListener { handleSendOrStop() }
-        toolbar.add(sendBtn, BorderLayout.EAST)
+        rightGroup.add(sendBtn)
+        toolbar.add(rightGroup, BorderLayout.EAST)
 
         inputContainer.add(toolbar, BorderLayout.SOUTH)
 
@@ -405,6 +411,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private fun setupHistoryOverlay() {
         historyOverlay.background = Color(0x1e, 0x1e, 0x1e)
         historyOverlay.border = MatteBorder(0, 1, 0, 0, Color(0x33, 0x33, 0x33))
+        historyOverlay.isVisible = false
+        historyOverlay.preferredSize = Dimension(300, 0)
 
         val historyHeader = JPanel(BorderLayout()).apply {
             background = Color(0x1e, 0x1e, 0x1e)
@@ -549,7 +557,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
             }
         }
 
-        toggleHistoryDrawer()
+        setHistoryDrawerOpen(false)
         messageContainer.revalidate()
         messageContainer.repaint()
     }
@@ -781,12 +789,14 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     // --- USER & ASSISTANT BUBBLE BUILDERS ---
     private fun appendUserBubble(text: String) {
         val card = UserBubbleCard(text)
-        val row = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+        val row = object : JPanel(BorderLayout()) {
+            override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }.apply {
             isOpaque = false
             border = EmptyBorder(0, 0, 10, 0)
-            alignmentX = Component.RIGHT_ALIGNMENT
+            alignmentX = Component.LEFT_ALIGNMENT
         }
-        row.add(card)
+        row.add(card, BorderLayout.EAST)
 
         messageContainer.add(row)
         messageContainer.revalidate()
@@ -795,7 +805,14 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     private fun appendAssistantBubble(initialText: String): AssistantMessagePanel {
         val panel = AssistantMessagePanel(project, initialText)
-        messageContainer.add(panel)
+        val row = object : JPanel(BorderLayout()) {
+            override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }.apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        row.add(panel, BorderLayout.CENTER)
+        messageContainer.add(row)
         messageContainer.revalidate()
         scrollBottomIfNear()
         return panel
@@ -814,8 +831,10 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private fun startNewChat() {
         currentSessionId = UUID.randomUUID().toString()
         currentMessages.clear()
+        currentAssistantPanel = null
         messageContainer.removeAll()
         messageContainer.add(emptyStateHelper)
+        setHistoryDrawerOpen(false)
         messageContainer.revalidate()
         messageContainer.repaint()
     }
@@ -850,15 +869,19 @@ class AssistantMessagePanel(private val project: Project, initialText: String) :
     private val contentPanel = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
+        alignmentX = Component.LEFT_ALIGNMENT
     }
 
     init {
         layout = BorderLayout()
         isOpaque = false
         border = EmptyBorder(0, 0, 20, 0)
+        alignmentX = Component.LEFT_ALIGNMENT
         add(contentPanel, BorderLayout.CENTER)
         render()
     }
+
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     fun appendToken(token: String) {
         if (rawText.toString() == "…") {
@@ -926,11 +949,14 @@ class AssistantMessagePanel(private val project: Project, initialText: String) :
     }
 
     private fun createHtmlPane(markdownSnippet: String): JEditorPane {
-        val pane = JEditorPane("text/html", "").apply {
+        val pane = object : JEditorPane("text/html", "") {
+            override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }.apply {
             isEditable = false
             isOpaque = false
             background = Color(0x1e, 0x1e, 0x1e)
             border = null
+            alignmentX = Component.LEFT_ALIGNMENT
         }
         val html = markdownSnippet
             .replace("&", "&amp;")
@@ -984,6 +1010,8 @@ class CollapsibleThinkingPanel(private val thinkText: String) : JPanel(BorderLay
         add(headerLbl, BorderLayout.NORTH)
         add(contentPane, BorderLayout.CENTER)
     }
+
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 }
 
 // --- CODE BLOCK PANEL WITH HOVER ACTION BUTTONS ---
@@ -997,7 +1025,6 @@ class CodeBlockPanel(private val project: Project, private val codeStr: String) 
             CustomRoundedBorder(Color(0x43, 0x45, 0x4a), 6),
             EmptyBorder(10, 12, 10, 12)
         )
-        maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
         alignmentX = Component.LEFT_ALIGNMENT
 
         val codeArea = JTextArea(codeStr).apply {
@@ -1037,6 +1064,8 @@ class CodeBlockPanel(private val project: Project, private val codeStr: String) 
             override fun mouseExited(e: MouseEvent) { actionPanel.isVisible = false }
         })
     }
+
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     private fun createCodeActionButton(text: String, onClick: () -> Unit): JButton {
         return JButton(text).apply {
@@ -1182,23 +1211,27 @@ class SvgIconButton(
     private val svgType: SvgType,
     tooltip: String = "",
     private val onClick: () -> Unit
-) : JLabel() {
+) : JButton() {
     private var isHovered = false
 
     init {
         toolTipText = tooltip
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         preferredSize = Dimension(24, 24)
+        isBorderPainted = false
+        isContentAreaFilled = false
+        isFocusPainted = false
+        isOpaque = false
+        border = EmptyBorder(0, 0, 0, 0)
 
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { isHovered = true; repaint() }
             override fun mouseExited(e: MouseEvent) { isHovered = false; repaint() }
-            override fun mouseClicked(e: MouseEvent) { onClick() }
         })
+        addActionListener { onClick() }
     }
 
     override fun paintComponent(g: Graphics) {
-        super.paintComponent(g)
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 

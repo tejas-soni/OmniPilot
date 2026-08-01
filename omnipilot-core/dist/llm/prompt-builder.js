@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.PromptBuilder = void 0;
-class PromptBuilder {
+export class PromptBuilder {
     static buildSystemPrompt(context) {
         const { mode, osInfo, editorContext } = context;
         let basePrompt = `You are OmniPilot, an advanced AI coding assistant embedded in the IDE.\nOperating System: ${osInfo}.\n`;
@@ -49,4 +46,3 @@ class PromptBuilder {
         return result;
     }
 }
-exports.PromptBuilder = PromptBuilder;

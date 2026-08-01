@@ -1,7 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.ProviderStore = void 0;
-class ProviderStore {
+export class ProviderStore {
     providers = new Map();
     activeProviderId = '';
     setProviders(providers) {
@@ -34,4 +31,3 @@ class ProviderStore {
         return Array.from(this.providers.values());
     }
 }
-exports.ProviderStore = ProviderStore;
