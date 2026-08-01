@@ -69,6 +69,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private val historyOverlay = JPanel(BorderLayout())
     private val historyListContainer = JPanel()
     private var isHistoryOpen = false
+    private var historyOverlayX = Int.MIN_VALUE
+    private var historyAnimationTimer: Timer? = null
 
     // Permission Glass Pane
     private val permissionOverlay = JPanel(BorderLayout())
@@ -113,8 +115,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         contentHostPanel.add(mainContentPanel, BorderLayout.CENTER)
 
         setupHistoryOverlay()
-        contentHostPanel.add(historyOverlay, BorderLayout.EAST)
         layeredPane.add(contentHostPanel, JLayeredPane.DEFAULT_LAYER)
+        layeredPane.add(historyOverlay, JLayeredPane.PALETTE_LAYER)
 
         setupPermissionOverlay()
         layeredPane.add(permissionOverlay, JLayeredPane.MODAL_LAYER)
@@ -138,13 +140,10 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     private fun setHistoryDrawerOpen(open: Boolean) {
         isHistoryOpen = open
-        historyOverlay.isVisible = open
         if (isHistoryOpen) {
             fetchHistoryFromStore()
         }
-        contentHostPanel.revalidate()
-        contentHostPanel.repaint()
-        updateLayeredBounds()
+        updateHistoryOverlayBounds(animated = true)
     }
 
     private fun toggleHistoryDrawer() {
@@ -157,6 +156,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         if (w <= 0 || h <= 0) return
 
         contentHostPanel.setBounds(0, 0, w, h)
+        updateHistoryOverlayBounds(animated = false)
 
         if (permissionOverlay.isVisible) {
             permissionOverlay.setBounds(20, 20, w - 40, 180)
@@ -164,6 +164,57 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
         layeredPane.revalidate()
         layeredPane.repaint()
+    }
+
+    private fun updateHistoryOverlayBounds(animated: Boolean) {
+        val w = if (layeredPane.width > 0) layeredPane.width else width
+        val h = if (layeredPane.height > 0) layeredPane.height else height
+        if (w <= 0 || h <= 0) return
+
+        val sidebarW = (w * 0.8).toInt().coerceIn(240, 320)
+        val openX = w - sidebarW
+        val closedX = w
+        val targetX = if (isHistoryOpen) openX else closedX
+
+        if (historyOverlayX == Int.MIN_VALUE) {
+            historyOverlayX = targetX
+        } else {
+            historyOverlayX = historyOverlayX.coerceIn(openX, closedX)
+        }
+
+        fun applyBounds(x: Int) {
+            historyOverlayX = x
+            historyOverlay.setBounds(x, 0, sidebarW, h)
+            historyOverlay.revalidate()
+            historyOverlay.repaint()
+        }
+
+        if (!animated) {
+            historyAnimationTimer?.stop()
+            applyBounds(targetX)
+            historyOverlay.isVisible = isHistoryOpen
+            return
+        }
+
+        historyAnimationTimer?.stop()
+        historyOverlay.isVisible = true
+
+        historyAnimationTimer = Timer(12, null).apply {
+            addActionListener {
+                val distance = targetX - historyOverlayX
+                if (kotlin.math.abs(distance) <= 8) {
+                    applyBounds(targetX)
+                    stop()
+                    if (!isHistoryOpen) {
+                        historyOverlay.isVisible = false
+                    }
+                } else {
+                    val step = maxOf(8, kotlin.math.abs(distance) / 4)
+                    applyBounds(historyOverlayX + step * Integer.signum(distance))
+                }
+            }
+            start()
+        }
     }
 
     // --- TOP HEADER ---
@@ -412,7 +463,6 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         historyOverlay.background = Color(0x1e, 0x1e, 0x1e)
         historyOverlay.border = MatteBorder(0, 1, 0, 0, Color(0x33, 0x33, 0x33))
         historyOverlay.isVisible = false
-        historyOverlay.preferredSize = Dimension(300, 0)
 
         val historyHeader = JPanel(BorderLayout()).apply {
             background = Color(0x1e, 0x1e, 0x1e)
