@@ -254,7 +254,7 @@ class OmniPilotChatProvider implements vscode.WebviewViewProvider {
         }
         case 'sendMessage': {
           try {
-            await client?.sendRequest('chat/send', {
+            const result = await client?.sendRequest<{ status: string; responseText: string }>('chat/send', {
               sessionId: msg.sessionId,
               messages: msg.messages,
               providerId: msg.providerId,
@@ -264,6 +264,23 @@ class OmniPilotChatProvider implements vscode.WebviewViewProvider {
               mode: msg.mode === 'Agent (Auto)' ? 'AGENT' : 'CHAT',
               osInfo: process.platform
             });
+            // Save history after every successful AI turn
+            if (result && result.responseText) {
+              const allMessages = [
+                ...(msg.messages || []),
+                { role: 'assistant', content: result.responseText }
+              ];
+              const firstUserMsg = msg.messages?.find((m: any) => m.role === 'user');
+              const title = (firstUserMsg?.content || 'Chat').slice(0, 60);
+              client?.sendRequest('history/save', {
+                session: {
+                  id: msg.sessionId,
+                  title,
+                  timestamp: Date.now(),
+                  messages: allMessages
+                }
+              }).catch(() => { /* history save failures are non-fatal */ });
+            }
           } catch (e: any) {
             webviewView.webview.postMessage({ type: 'error', message: e?.message ?? String(e) });
           }
