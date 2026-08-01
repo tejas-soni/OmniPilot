@@ -38,8 +38,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "compile": "node ../omnipilot-core/node_modules/esbuild/bin/esbuild src/extension.ts --bundle --platform=node --target=node18 --external:vscode --outfile=dist/extension.js"
   },
   "devDependencies": {
     "@types/node": "^18.x",
