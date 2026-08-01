@@ -11,7 +11,7 @@ let settingsPanel: vscode.WebviewPanel | undefined;
 export function activate(context: vscode.ExtensionContext) {
   // 1. Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = '$(robot) OmniPilot';
+  statusBarItem.text = '$(omnipilot) OmniPilot';
   statusBarItem.tooltip = 'OmniPilot AI — click to open settings';
   statusBarItem.command = 'omnipilot.openSettings';
   statusBarItem.show();
@@ -88,11 +88,11 @@ function updateStatusBar(): void {
   const activeModel = config.get<string>('activeModel') ?? '';
   const provider = providers.find(p => p.id === activeId);
   if (provider && activeModel) {
-    statusBarItem.text = `$(robot) ${provider.name} · ${activeModel.split('/').pop()}`;
+    statusBarItem.text = `$(omnipilot) ${provider.name} · ${activeModel.split('/').pop()}`;
   } else if (provider) {
-    statusBarItem.text = `$(robot) ${provider.name}`;
+    statusBarItem.text = `$(omnipilot) ${provider.name}`;
   } else {
-    statusBarItem.text = '$(robot) OmniPilot';
+    statusBarItem.text = '$(omnipilot) OmniPilot';
   }
 }
 
