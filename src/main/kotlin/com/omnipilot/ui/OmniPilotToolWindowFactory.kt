@@ -5,6 +5,8 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
+import com.intellij.ui.jcef.JBCefApp
+import com.omnipilot.ui.swing.OmniPilotSwingChatPanel
 
 class OmniPilotToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -12,9 +14,24 @@ class OmniPilotToolWindowFactory : ToolWindowFactory {
         val icon = IconLoader.getIcon("/icons/toolWindowIcon.svg", OmniPilotToolWindowFactory::class.java)
         toolWindow.setIcon(icon)
 
-        val chatPanel = OmniPilotChatPanel(project)
         val contentFactory = ContentFactory.getInstance()
-        val content = contentFactory.createContent(chatPanel.content, "", false)
-        toolWindow.contentManager.addContent(content)
+
+        // Auto-detect JCEF: if available, use the rich web UI; otherwise, use native Swing chat
+        val isJcefAvailable = try {
+            JBCefApp.isSupported()
+        } catch (e: Exception) {
+            false
+        }
+
+        if (isJcefAvailable) {
+            val chatPanel = OmniPilotChatPanel(project)
+            val content = contentFactory.createContent(chatPanel.content, "", false)
+            toolWindow.contentManager.addContent(content)
+        } else {
+            val swingPanel = OmniPilotSwingChatPanel(project)
+            val content = contentFactory.createContent(swingPanel, "", false)
+            toolWindow.contentManager.addContent(content)
+        }
     }
 }
+
