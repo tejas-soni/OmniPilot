@@ -1,12 +1,13 @@
 package com.omnipilot.ui.swing
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
+import com.omnipilot.actions.AgentActionService
 import com.omnipilot.actions.ContextService
 import com.omnipilot.api.ChatMessage
 import com.omnipilot.history.ChatSession
@@ -30,10 +31,10 @@ import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import javax.swing.*
 import javax.swing.border.AbstractBorder
 import javax.swing.border.CompoundBorder
 import javax.swing.border.EmptyBorder
-import javax.swing.border.LineBorder
 import javax.swing.border.MatteBorder
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
@@ -44,7 +45,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private var currentMessages = mutableListOf<ChatMessage>()
     private var isStreaming = false
 
-    // UI Structure
+    // Layered Container for Sliding Sidebar & Permission Glass Pane
     private val layeredPane = JLayeredPane()
     private val mainContentPanel = JPanel(BorderLayout())
     private val messageContainer = JPanel()
@@ -52,50 +53,47 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private val emptyStateHelper: JPanel
     private val noModelsBanner: JPanel
 
-    // Input Components
+    // Custom Input Components (Matching chat.html 100%)
     private val inputWrapper = JPanel(BorderLayout())
     private val inputContainer = JPanel(BorderLayout())
-    private val inputTextArea = PlaceholderTextArea("Message OmniPilot...")
-    private val providerCombo = JComboBox<String>()
-    private val modelCombo = JComboBox<String>()
-    private val modeCombo = JComboBox<String>(arrayOf("Chat (Ask)", "Agent (Auto)", "Read-Only"))
-    private val sendBtn = IconButton()
+    private val inputTextArea = CustomPlaceholderTextArea("Message OmniPilot...")
+    private val providerDropdown = CustomSelectDropdown("Loading Agents...")
+    private val modelDropdown = CustomSelectDropdown("Loading Models...")
+    private val modeDropdown = CustomSelectDropdown("Chat (Ask)")
+    private val sendBtn = CustomSendIconButton()
 
-    // History Sidebar Overlay Panel
+    // History Sidebar
     private val historyOverlay = JPanel(BorderLayout())
     private val historyListContainer = JPanel()
     private var isHistoryOpen = false
-    private var historySlideX = 300
 
-    // Permission Dialog Glass Pane Overlay
+    // Permission Glass Pane
     private val permissionOverlay = JPanel(BorderLayout())
     private val permToolLabel = JLabel()
     private val permArgsArea = JTextArea(3, 20)
     private var currentPermFuture: CompletableFuture<String>? = null
 
-    // Streaming State
-    private var currentAssistantEditor: JEditorPane? = null
-    private var currentAssistantText = StringBuilder()
+    // Streaming
+    private var currentAssistantPanel: AssistantMessagePanel? = null
 
     init {
         background = Color(0x1e, 0x1e, 0x1e)
         mainContentPanel.background = Color(0x1e, 0x1e, 0x1e)
 
-        // 1. HEADER
+        // 1. TOP HEADER (AI Chat | + New Chat | History Icon | Settings Icon)
         val headerPanel = createHeaderPanel()
         add(headerPanel, BorderLayout.NORTH)
 
-        // 2. CHAT MESSAGES & SCROLL
+        // 2. MESSAGES CONTAINER
         messageContainer.layout = BoxLayout(messageContainer, BoxLayout.Y_AXIS)
         messageContainer.background = Color(0x1e, 0x1e, 0x1e)
         messageContainer.border = EmptyBorder(20, 20, 20, 20)
 
         emptyStateHelper = createEmptyStateHelper()
         noModelsBanner = createNoModelsBanner()
-
         messageContainer.add(emptyStateHelper)
 
-        scrollPane = JBScrollPane(messageContainer)
+        scrollPane = JBScrollPane(messageContainer as Component)
         scrollPane.border = null
         scrollPane.background = Color(0x1e, 0x1e, 0x1e)
         scrollPane.viewport.background = Color(0x1e, 0x1e, 0x1e)
@@ -105,7 +103,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val inputWrapPanel = createInputWrapperPanel()
         mainContentPanel.add(inputWrapPanel, BorderLayout.SOUTH)
 
-        // 4. LAYERED PANE SETUP FOR SLIDING SIDEBAR & PERMISSION OVERLAY
+        // 4. LAYERED PANE SETUP
         layeredPane.layout = null
         layeredPane.add(mainContentPanel, JLayeredPane.DEFAULT_LAYER)
 
@@ -117,14 +115,15 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
         add(layeredPane, BorderLayout.CENTER)
 
-        // Resize listener for LayeredPane bounds
+        // Layout bounds resizer
         addComponentListener(object : ComponentAdapter() {
             override fun componentResized(e: ComponentEvent) {
                 updateLayeredBounds()
             }
         })
 
-        // 5. INITIALIZE DATA & LISTENERS
+        // Initial Data Load
+        modeDropdown.setItems(listOf("Chat (Ask)", "Agent (Auto)", "Read-Only"))
         loadProviders()
         subscribeSettingsListener()
         setupServerListeners()
@@ -149,7 +148,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         layeredPane.repaint()
     }
 
-    // --- HEADER PANEL ---
+    // --- TOP HEADER ---
     private fun createHeaderPanel(): JPanel {
         val header = JPanel(BorderLayout())
         header.background = Color(0x1e, 0x1e, 0x1e)
@@ -158,34 +157,33 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
             EmptyBorder(12, 16, 12, 16)
         )
 
-        val titleLabel = JLabel("AI Chat")
-        titleLabel.font = Font("Inter", Font.BOLD, 13)
-        titleLabel.foreground = Color(0xd4, 0xd4, 0xd4)
+        val titleLabel = JLabel("AI Chat").apply {
+            font = Font("Inter", Font.BOLD, 13)
+            foreground = Color(0xd4, 0xd4, 0xd4)
+        }
         header.add(titleLabel, BorderLayout.WEST)
 
-        val actionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 12, 0))
-        actionsPanel.isOpaque = false
+        val actionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 12, 0)).apply { isOpaque = false }
 
-        val newChatBtn = JLabel("+ New Chat")
-        newChatBtn.font = Font("Inter", Font.PLAIN, 12)
-        newChatBtn.foreground = Color(0x8c, 0x8c, 0x8c)
-        newChatBtn.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        newChatBtn.addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) { startNewChat() }
-            override fun mouseEntered(e: MouseEvent) { newChatBtn.foreground = Color(0xd4, 0xd4, 0xd4) }
-            override fun mouseExited(e: MouseEvent) { newChatBtn.foreground = Color(0x8c, 0x8c, 0x8c) }
-        })
+        val newChatBtn = JLabel("+ New Chat").apply {
+            font = Font("Inter", Font.PLAIN, 12)
+            foreground = Color(0x8c, 0x8c, 0x8c)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) { startNewChat() }
+                override fun mouseEntered(e: MouseEvent) { foreground = Color(0xd4, 0xd4, 0xd4) }
+                override fun mouseExited(e: MouseEvent) { foreground = Color(0x8c, 0x8c, 0x8c) }
+            })
+        }
         actionsPanel.add(newChatBtn)
 
-        // History Clock Icon Button
-        val historyIconBtn = IconButton(IconType.CLOCK, "Chat History") { toggleHistoryDrawer() }
+        val historyIconBtn = SvgIconButton(SvgType.CLOCK, "Chat History") { toggleHistoryDrawer() }
         actionsPanel.add(historyIconBtn)
 
-        // More Options Icon Button
-        val moreIconBtn = IconButton(IconType.MORE, "More Options") {
+        val settingsIconBtn = SvgIconButton(SvgType.MORE, "More Options") {
             ShowSettingsUtil.getInstance().showSettingsDialog(project, OmniPilotConfigurable::class.java)
         }
-        actionsPanel.add(moreIconBtn)
+        actionsPanel.add(settingsIconBtn)
 
         header.add(actionsPanel, BorderLayout.EAST)
         return header
@@ -193,9 +191,10 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     // --- EMPTY STATE HELPER ---
     private fun createEmptyStateHelper(): JPanel {
-        val helper = JPanel(GridBagLayout())
-        helper.isOpaque = false
-        helper.border = EmptyBorder(40, 20, 40, 20)
+        val helper = JPanel(GridBagLayout()).apply {
+            isOpaque = false
+            border = EmptyBorder(40, 20, 40, 20)
+        }
 
         val gbc = GridBagConstraints().apply {
             gridx = 0
@@ -205,27 +204,22 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         }
 
         fun createShortcutRow(desc: String, vararg keys: String): JPanel {
-            val p = JPanel(FlowLayout(FlowLayout.CENTER, 6, 0))
-            p.isOpaque = false
-
-            val descLbl = JLabel(desc).apply {
+            val p = JPanel(FlowLayout(FlowLayout.CENTER, 6, 0)).apply { isOpaque = false }
+            p.add(JLabel(desc).apply {
                 foreground = Color(0x7a, 0x7a, 0x7a)
                 font = Font("Inter", Font.PLAIN, 13)
-            }
-            p.add(descLbl)
-
+            })
             for (k in keys) {
-                val kbd = JLabel(k).apply {
+                p.add(JLabel(k).apply {
                     foreground = Color(0xd4, 0xd4, 0xd4)
                     background = Color(0x33, 0x33, 0x33)
                     font = Font("Inter", Font.PLAIN, 11)
                     isOpaque = true
                     border = CompoundBorder(
-                        LineBorder(Color(0x44, 0x44, 0x44), 1, true),
+                        CustomRoundedBorder(Color(0x44, 0x44, 0x44), 4),
                         EmptyBorder(2, 6, 2, 6)
                     )
-                }
-                p.add(kbd)
+                })
             }
             return p
         }
@@ -253,14 +247,15 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     // --- NO MODELS BANNER ---
     private fun createNoModelsBanner(): JPanel {
-        val banner = JPanel()
-        banner.layout = BoxLayout(banner, BoxLayout.Y_AXIS)
-        banner.background = Color(0x23, 0x2d, 0x3d)
-        banner.border = CompoundBorder(
-            LineBorder(Color(0x35, 0x74, 0xf0), 1, true),
-            EmptyBorder(20, 20, 20, 20)
-        )
-        banner.isVisible = false
+        val banner = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            background = Color(0x23, 0x2d, 0x3d)
+            border = CompoundBorder(
+                CustomRoundedBorder(Color(0x35, 0x74, 0xf0), 10),
+                EmptyBorder(24, 20, 24, 20)
+            )
+            isVisible = false
+        }
 
         val iconLbl = JLabel("🤖", SwingConstants.CENTER).apply {
             font = Font("Dialog", Font.PLAIN, 28)
@@ -299,7 +294,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         return banner
     }
 
-    // --- INPUT WRAPPER PANEL ---
+    // --- INPUT WRAPPER ---
     private fun createInputWrapperPanel(): JPanel {
         inputWrapper.background = Color(0x1e, 0x1e, 0x1e)
         inputWrapper.border = CompoundBorder(
@@ -308,8 +303,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         )
 
         inputContainer.background = Color(0x1e, 0x1e, 0x1e)
-        val defaultBorder = RoundedBorder(Color(0x4d, 0x4d, 0x4d), 8)
-        val focusedBorder = RoundedBorder(Color(0x35, 0x74, 0xf0), 8)
+        val defaultBorder = CustomRoundedBorder(Color(0x4d, 0x4d, 0x4d), 8)
+        val focusedBorder = CustomRoundedBorder(Color(0x35, 0x74, 0xf0), 8)
         inputContainer.border = defaultBorder
 
         inputTextArea.background = Color(0x1e, 0x1e, 0x1e)
@@ -343,29 +338,26 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
         inputContainer.add(inputTextArea, BorderLayout.CENTER)
 
-        // INPUT TOOLBAR
-        val toolbar = JPanel(BorderLayout())
-        toolbar.isOpaque = false
-        toolbar.border = EmptyBorder(6, 12, 10, 12)
+        // TOOLBAR INSIDE INPUT CONTAINER
+        val toolbar = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = EmptyBorder(6, 12, 10, 12)
+        }
 
         val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply { isOpaque = false }
-        val attachBtn = IconButton(IconType.PLUS, "Attach Context") {
-            // Attach context functionality
+        val attachBtn = SvgIconButton(SvgType.PLUS, "Attach Context") {
+            // Attach context
         }
         leftGroup.add(attachBtn)
-        styleComboBox(providerCombo)
-        providerCombo.addActionListener { onProviderSelected() }
-        leftGroup.add(providerCombo)
+        leftGroup.add(providerDropdown)
+        providerDropdown.setOnSelect { onProviderSelected() }
         toolbar.add(leftGroup, BorderLayout.WEST)
 
         val rightGroup = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { isOpaque = false }
-        styleComboBox(modelCombo)
-        styleComboBox(modeCombo)
-        rightGroup.add(modelCombo)
-        rightGroup.add(modeCombo)
+        rightGroup.add(modelDropdown)
+        rightGroup.add(modeDropdown)
 
-        sendBtn.setIconType(IconType.SEND)
-        sendBtn.addActionListener { handleSendOrStop() }
+        sendBtn.setOnClickListener { handleSendOrStop() }
         rightGroup.add(sendBtn)
 
         toolbar.add(rightGroup, BorderLayout.EAST)
@@ -378,23 +370,21 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
             font = Font("Inter", Font.PLAIN, 12)
             border = EmptyBorder(8, 0, 0, 0)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    BrowserUtil.browse("https://github.com")
+                }
+            })
         }
         inputWrapper.add(shareFeedback, BorderLayout.SOUTH)
 
         return inputWrapper
     }
 
-    private fun styleComboBox(combo: JComboBox<String>) {
-        combo.background = Color(0x3c, 0x3f, 0x41)
-        combo.foreground = Color(0xa9, 0xb7, 0xc6)
-        combo.font = Font("Inter", Font.PLAIN, 13)
-        combo.isFocusable = false
-    }
-
     private fun updateSendButtonState() {
         val hasText = inputTextArea.text.trim().isNotEmpty()
         if (!isStreaming) {
-            sendBtn.setActiveState(hasText)
+            sendBtn.setHasText(hasText)
         }
     }
 
@@ -403,12 +393,13 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         historyOverlay.background = Color(0x1e, 0x1e, 0x1e)
         historyOverlay.border = MatteBorder(0, 1, 0, 0, Color(0x33, 0x33, 0x33))
 
-        val historyHeader = JPanel(BorderLayout())
-        historyHeader.background = Color(0x1e, 0x1e, 0x1e)
-        historyHeader.border = CompoundBorder(
-            MatteBorder(0, 0, 1, 0, Color(0x33, 0x33, 0x33)),
-            EmptyBorder(12, 16, 12, 16)
-        )
+        val historyHeader = JPanel(BorderLayout()).apply {
+            background = Color(0x1e, 0x1e, 0x1e)
+            border = CompoundBorder(
+                MatteBorder(0, 0, 1, 0, Color(0x33, 0x33, 0x33)),
+                EmptyBorder(12, 16, 12, 16)
+            )
+        }
 
         val title = JLabel("Chat History").apply {
             font = Font("Inter", Font.BOLD, 13)
@@ -416,7 +407,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         }
         historyHeader.add(title, BorderLayout.WEST)
 
-        val closeBtn = IconButton(IconType.CLOSE, "Close History") { toggleHistoryDrawer() }
+        val closeBtn = SvgIconButton(SvgType.CLOSE, "Close History") { toggleHistoryDrawer() }
         historyHeader.add(closeBtn, BorderLayout.EAST)
 
         historyOverlay.add(historyHeader, BorderLayout.NORTH)
@@ -425,7 +416,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         historyListContainer.background = Color(0x1e, 0x1e, 0x1e)
         historyListContainer.border = EmptyBorder(8, 8, 8, 8)
 
-        val historyScroll = JBScrollPane(historyListContainer)
+        val historyScroll = JBScrollPane(historyListContainer as Component)
         historyScroll.border = null
         historyScroll.viewport.background = Color(0x1e, 0x1e, 0x1e)
         historyOverlay.add(historyScroll, BorderLayout.CENTER)
@@ -491,12 +482,13 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     }
 
     private fun createHistoryItemRow(sess: ChatSession): JPanel {
-        val row = JPanel(BorderLayout())
-        row.background = if (sess.id == currentSessionId) Color(0x2d, 0x2d, 0x2d) else Color(0x1e, 0x1e, 0x1e)
-        row.border = EmptyBorder(8, 12, 8, 12)
-        row.maximumSize = Dimension(Int.MAX_VALUE, 36)
-        row.alignmentX = Component.LEFT_ALIGNMENT
-        row.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        val row = JPanel(BorderLayout()).apply {
+            background = if (sess.id == currentSessionId) Color(0x2d, 0x2d, 0x2d) else Color(0x1e, 0x1e, 0x1e)
+            border = EmptyBorder(8, 12, 8, 12)
+            maximumSize = Dimension(Int.MAX_VALUE, 36)
+            alignmentX = Component.LEFT_ALIGNMENT
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        }
 
         val titleLbl = JLabel(sess.title).apply {
             foreground = if (sess.id == currentSessionId) Color(0xd4, 0xd4, 0xd4) else Color(0xa9, 0xb7, 0xc6)
@@ -504,7 +496,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         }
         row.add(titleLbl, BorderLayout.CENTER)
 
-        val delBtn = IconButton(IconType.TRASH, "Delete Session") {
+        val delBtn = SvgIconButton(SvgType.TRASH, "Delete Session") {
             OmniPilotHistoryManager.deleteSession(sess.id)
             if (sess.id == currentSessionId) {
                 startNewChat()
@@ -557,11 +549,11 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         messageContainer.repaint()
     }
 
-    // --- PERMISSION OVERLAY GLASS PANE ---
+    // --- PERMISSION GLASS PANE ---
     private fun setupPermissionOverlay() {
         permissionOverlay.background = Color(0x2b, 0x2d, 0x30)
         permissionOverlay.border = CompoundBorder(
-            LineBorder(Color(0x4d, 0x4d, 0x4d), 1, true),
+            CustomRoundedBorder(Color(0x4d, 0x4d, 0x4d), 8),
             EmptyBorder(16, 16, 16, 16)
         )
         permissionOverlay.isVisible = false
@@ -582,7 +574,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
         val centerPanel = JPanel(BorderLayout(0, 8)).apply { isOpaque = false }
         centerPanel.add(permToolLabel, BorderLayout.NORTH)
-        centerPanel.add(JBScrollPane(permArgsArea), BorderLayout.CENTER)
+        centerPanel.add(JBScrollPane(permArgsArea as Component), BorderLayout.CENTER)
         permissionOverlay.add(centerPanel, BorderLayout.CENTER)
 
         val actionsPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 8, 0)).apply { isOpaque = false }
@@ -590,13 +582,11 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val denyBtn = JButton("Deny").apply {
             background = Color(0x3c, 0x3f, 0x41)
             foreground = Color(0xd4, 0xd4, 0xd4)
-            border = LineBorder(Color(0x4d, 0x4d, 0x4d))
             addActionListener { resolvePermission("deny") }
         }
         val allowWorkspaceBtn = JButton("Allow Workspace").apply {
             background = Color(0x3c, 0x3f, 0x41)
             foreground = Color(0xd4, 0xd4, 0xd4)
-            border = LineBorder(Color(0x4d, 0x4d, 0x4d))
             addActionListener { resolvePermission("allowWorkspace") }
         }
         val allowBtn = JButton("Allow").apply {
@@ -622,40 +612,33 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     // --- PROVIDERS & SETTINGS SYNC ---
     private fun loadProviders() {
         val settings = OmniPilotSettingsState.instance
-        providerCombo.removeAllItems()
-        modelCombo.removeAllItems()
+        val providerNames = settings.providers.map { it.name }
 
-        if (settings.providers.isEmpty()) {
-            providerCombo.addItem("No Agents Configured")
-            modelCombo.addItem("No models")
+        if (providerNames.isEmpty()) {
+            providerDropdown.setItems(listOf("No Agents Configured"))
+            modelDropdown.setItems(listOf("No models"))
             noModelsBanner.isVisible = true
             inputWrapper.isVisible = false
             return
         }
 
-        for (p in settings.providers) {
-            providerCombo.addItem(p.name)
-        }
-
+        providerDropdown.setItems(providerNames)
         onProviderSelected()
     }
 
     private fun onProviderSelected() {
-        modelCombo.removeAllItems()
         val settings = OmniPilotSettingsState.instance
-        val selectedIndex = providerCombo.selectedIndex
+        val selectedIndex = providerDropdown.getSelectedIndex()
 
         if (selectedIndex >= 0 && selectedIndex < settings.providers.size) {
             val provider = settings.providers[selectedIndex]
             val modelsList = provider.models.split(",").map { it.trim() }.filter { it.isNotEmpty() }
             if (modelsList.isEmpty()) {
-                modelCombo.addItem("No models")
+                modelDropdown.setItems(listOf("No models"))
                 noModelsBanner.isVisible = true
                 inputWrapper.isVisible = false
             } else {
-                for (m in modelsList) {
-                    modelCombo.addItem(m)
-                }
+                modelDropdown.setItems(modelsList)
                 noModelsBanner.isVisible = false
                 inputWrapper.isVisible = true
             }
@@ -692,12 +675,12 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         inputTextArea.text = ""
         updateSendButtonState()
 
-        val selectedProviderIndex = providerCombo.selectedIndex
+        val selectedProviderIndex = providerDropdown.getSelectedIndex()
         val settings = OmniPilotSettingsState.instance
         val provider = if (selectedProviderIndex >= 0 && selectedProviderIndex < settings.providers.size) settings.providers[selectedProviderIndex] else null
         val providerId = provider?.id ?: ""
-        val selectedModel = modelCombo.selectedItem?.toString() ?: ""
-        val modeStr = when (modeCombo.selectedIndex) {
+        val selectedModel = modelDropdown.getSelectedValue()
+        val modeStr = when (modeDropdown.getSelectedIndex()) {
             1 -> "AGENT"
             2 -> "READ-ONLY"
             else -> "CHAT"
@@ -713,8 +696,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         }
 
         setStreamingState(true)
-        currentAssistantText = StringBuilder()
-        currentAssistantEditor = appendAssistantBubble("…")
+        currentAssistantPanel = appendAssistantBubble("…")
 
         val jsonPayload = """
             {
@@ -736,7 +718,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         rpc.sendRequest("chat/send", jsonPayload) { _, errorJson ->
             if (errorJson != null) {
                 SwingUtilities.invokeLater {
-                    updateAssistantContent("Error: $errorJson")
+                    currentAssistantPanel?.setContent("Error: $errorJson")
                     setStreamingState(false)
                 }
             }
@@ -752,13 +734,12 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private fun setStreamingState(streaming: Boolean) {
         isStreaming = streaming
         SwingUtilities.invokeLater {
-            if (isStreaming) {
-                sendBtn.setIconType(IconType.STOP)
-            } else {
-                sendBtn.setIconType(IconType.SEND)
+            sendBtn.setIsStreaming(isStreaming)
+            if (!isStreaming) {
                 updateSendButtonState()
-                if (currentAssistantText.isNotEmpty()) {
-                    currentMessages.add(ChatMessage("assistant", currentAssistantText.toString()))
+                val text = currentAssistantPanel?.getRawContent() ?: ""
+                if (text.isNotEmpty()) {
+                    currentMessages.add(ChatMessage("assistant", text))
                     saveCurrentSession()
                 }
             }
@@ -771,8 +752,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         rpc.onNotification("chat/token") { params ->
             val token = params?.get("token")?.jsonPrimitive?.contentOrNull ?: ""
             SwingUtilities.invokeLater {
-                currentAssistantText.append(token)
-                updateAssistantContent(currentAssistantText.toString())
+                currentAssistantPanel?.appendToken(token)
+                scrollBottomIfNear()
             }
         }
 
@@ -783,18 +764,18 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         rpc.onNotification("chat/error") { params ->
             val errMsg = params?.get("message")?.jsonPrimitive?.contentOrNull ?: "Stream error"
             SwingUtilities.invokeLater {
-                updateAssistantContent("Error: $errMsg")
+                currentAssistantPanel?.setContent("Error: $errMsg")
                 setStreamingState(false)
             }
         }
     }
 
-    // --- MESSAGE BUBBLE BUILDERS ---
+    // --- USER & ASSISTANT BUBBLE BUILDERS ---
     private fun appendUserBubble(text: String) {
         val bubble = JPanel(BorderLayout()).apply {
             background = Color(0x2b, 0x2d, 0x30)
             border = CompoundBorder(
-                LineBorder(Color(0x3c, 0x3f, 0x41), 1, true),
+                CustomRoundedBorder(Color(0x3c, 0x3f, 0x41), 8),
                 EmptyBorder(12, 16, 12, 16)
             )
         }
@@ -814,50 +795,12 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         scrollBottomIfNear()
     }
 
-    private fun appendAssistantBubble(initialText: String): JEditorPane {
-        val editor = JEditorPane("text/html", "").apply {
-            isEditable = false
-            background = Color(0x1e, 0x1e, 0x1e)
-            border = EmptyBorder(0, 0, 20, 0)
-        }
-
-        messageContainer.add(editor)
+    private fun appendAssistantBubble(initialText: String): AssistantMessagePanel {
+        val panel = AssistantMessagePanel(project, initialText)
+        messageContainer.add(panel)
         messageContainer.revalidate()
         scrollBottomIfNear()
-
-        updateAssistantContent(initialText)
-        return editor
-    }
-
-    private fun updateAssistantContent(markdownText: String) {
-        val editor = currentAssistantEditor ?: return
-        val html = convertMarkdownToHtml(markdownText)
-        editor.text = "<html><body style='color:#a9b7c6; font-family:sans-serif; font-size:14px; line-height:1.6;'>$html</body></html>"
-        messageContainer.revalidate()
-        scrollBottomIfNear()
-    }
-
-    private fun convertMarkdownToHtml(text: String): String {
-        var result = text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-
-        // Handle code blocks ```...```
-        val codeBlockRegex = Regex("```(?:[a-zA-Z]+)?\n([\\s\\S]*?)```")
-        result = codeBlockRegex.replace(result) { match ->
-            val code = match.groupValues[1]
-            "<pre style='background:#1e1f22; padding:12px; border-radius:6px; border:1px solid #43454a; font-family:monospace; font-size:13px;'><code>$code</code></pre>"
-        }
-
-        // Inline code `...`
-        result = result.replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:13px;'>$1</code>")
-
-        // Bold **...**
-        result = result.replace(Regex("\\*\\*([^*]+)\\*\\*"), "<b>$1</b>")
-
-        // Newlines to <br> outside <pre>
-        return result.replace("\n", "<br>")
+        return panel
     }
 
     private fun scrollBottomIfNear() {
@@ -902,20 +845,325 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     }
 }
 
-// --- HELPER CUSTOM COMPONENTS ---
+// --- CUSTOM ASSISTANT MESSAGE PANEL WITH CODE BLOCKS & HOVER ACTIONS ---
 
-enum class IconType { CLOCK, MORE, PLUS, CLOSE, TRASH, SEND, STOP }
+class AssistantMessagePanel(private val project: Project, initialText: String) : JPanel() {
+    private val rawText = StringBuilder(initialText)
+    private val contentPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        isOpaque = false
+    }
 
-class IconButton(
-    private var iconType: IconType = IconType.CLOCK,
+    init {
+        layout = BorderLayout()
+        isOpaque = false
+        border = EmptyBorder(0, 0, 20, 0)
+        add(contentPanel, BorderLayout.CENTER)
+        render()
+    }
+
+    fun appendToken(token: String) {
+        if (rawText.toString() == "…") {
+            rawText.clear()
+        }
+        rawText.append(token)
+        render()
+    }
+
+    fun setContent(text: String) {
+        rawText.clear()
+        rawText.append(text)
+        render()
+    }
+
+    fun getRawContent(): String = rawText.toString()
+
+    private fun render() {
+        contentPanel.removeAll()
+        val text = rawText.toString()
+
+        // Split text by markdown code blocks ```lang ... ```
+        val codeBlockRegex = Regex("```(?:[a-zA-Z]+)?\n([\\s\\S]*?)```")
+        var lastIdx = 0
+
+        for (match in codeBlockRegex.findAll(text)) {
+            val start = match.range.first
+            if (start > lastIdx) {
+                val markdownSnippet = text.substring(lastIdx, start)
+                contentPanel.add(createHtmlPane(markdownSnippet))
+            }
+
+            val codeSnippet = match.groupValues[1]
+            contentPanel.add(CodeBlockPanel(project, codeSnippet))
+            lastIdx = match.range.last + 1
+        }
+
+        if (lastIdx < text.length) {
+            val remainingSnippet = text.substring(lastIdx)
+            contentPanel.add(createHtmlPane(remainingSnippet))
+        }
+
+        contentPanel.revalidate()
+        contentPanel.repaint()
+    }
+
+    private fun createHtmlPane(markdownSnippet: String): JEditorPane {
+        val pane = JEditorPane("text/html", "").apply {
+            isEditable = false
+            isOpaque = false
+            background = Color(0x1e, 0x1e, 0x1e)
+            border = null
+        }
+        val html = markdownSnippet
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace(Regex("\\*\\*([^*]+)\\*\\*"), "<b>$1</b>")
+            .replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:13px;'>$1</code>")
+            .replace("\n", "<br>")
+
+        pane.text = "<html><body style='color:#a9b7c6; font-family:sans-serif; font-size:14px; line-height:1.6;'>$html</body></html>"
+        return pane
+    }
+}
+
+// --- CODE BLOCK PANEL WITH HOVER ACTION BUTTONS ---
+
+class CodeBlockPanel(private val project: Project, private val codeStr: String) : JPanel(BorderLayout()) {
+    private val actionPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { isOpaque = false }
+
+    init {
+        background = Color(0x1e, 0x1f, 0x22)
+        border = CompoundBorder(
+            CustomRoundedBorder(Color(0x43, 0x45, 0x4a), 6),
+            EmptyBorder(10, 12, 10, 12)
+        )
+        maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
+        alignmentX = Component.LEFT_ALIGNMENT
+
+        val codeArea = JTextArea(codeStr).apply {
+            isEditable = false
+            background = Color(0x1e, 0x1f, 0x22)
+            foreground = Color(0xa9, 0xb7, 0xc6)
+            font = Font("JetBrains Mono", Font.PLAIN, 13)
+            border = null
+        }
+        add(codeArea, BorderLayout.CENTER)
+
+        // Action Buttons
+        val insertBtn = createCodeActionButton("Insert at Cursor") {
+            val editor = FileEditorManager.getInstance(project).selectedTextEditor
+            if (editor != null) {
+                WriteCommandAction.runWriteCommandAction(project, "Insert Code", "OmniPilot", {
+                    val offset = editor.caretModel.offset
+                    editor.document.insertString(offset, codeStr)
+                })
+            }
+        }
+        val copyBtn = createCodeActionButton("Copy") {
+            val sel = StringSelection(codeStr)
+            Toolkit.getDefaultToolkit().systemClipboard.setContents(sel, sel)
+            insertBtn.text = "Copied!"
+            Timer(1500) { insertBtn.text = "Insert at Cursor" }.apply { isRepeats = false; start() }
+        }
+
+        actionPanel.add(insertBtn)
+        actionPanel.add(copyBtn)
+        actionPanel.isVisible = false
+
+        add(actionPanel, BorderLayout.NORTH)
+
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) { actionPanel.isVisible = true }
+            override fun mouseExited(e: MouseEvent) { actionPanel.isVisible = false }
+        })
+    }
+
+    private fun createCodeActionButton(text: String, onClick: () -> Unit): JButton {
+        return JButton(text).apply {
+            background = Color(0x3c, 0x3f, 0x41)
+            foreground = Color(0xa9, 0xb7, 0xc6)
+            font = Font("Inter", Font.PLAIN, 11)
+            border = CompoundBorder(
+                CustomRoundedBorder(Color(0x4d, 0x4d, 0x4d), 4),
+                EmptyBorder(3, 8, 3, 8)
+            )
+            isFocusPainted = false
+            isContentAreaFilled = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) {
+                    background = Color(0x4b, 0x4d, 0x4d)
+                    foreground = Color.WHITE
+                }
+                override fun mouseExited(e: MouseEvent) {
+                    background = Color(0x3c, 0x3f, 0x41)
+                    foreground = Color(0xa9, 0xb7, 0xc6)
+                }
+            })
+            addActionListener { onClick() }
+        }
+    }
+}
+
+// --- CUSTOM DROPDOWN COMPONENT MATCHING chat.html 100% ---
+
+class CustomSelectDropdown(initialValue: String) : JLabel(initialValue) {
+    private val items = mutableListOf<String>()
+    private var selectedIndex = 0
+    private var onSelectCallback: (() -> Unit)? = null
+    private var isHovered = false
+
+    init {
+        font = Font("Inter", Font.PLAIN, 13)
+        foreground = Color(0xa9, 0xb7, 0xc6)
+        border = EmptyBorder(4, 8, 4, 20)
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) { isHovered = true; foreground = Color(0xd4, 0xd4, 0xd4); repaint() }
+            override fun mouseExited(e: MouseEvent) { isHovered = false; foreground = Color(0xa9, 0xb7, 0xc6); repaint() }
+            override fun mouseClicked(e: MouseEvent) { showPopupMenu() }
+        })
+    }
+
+    fun setItems(newItems: List<String>) {
+        items.clear()
+        items.addAll(newItems)
+        selectedIndex = 0
+        text = if (items.isNotEmpty()) items[0] else ""
+        repaint()
+    }
+
+    fun setOnSelect(cb: () -> Unit) {
+        this.onSelectCallback = cb
+    }
+
+    fun getSelectedIndex(): Int = selectedIndex
+    fun getSelectedValue(): String = if (selectedIndex >= 0 && selectedIndex < items.size) items[selectedIndex] else ""
+
+    private fun showPopupMenu() {
+        if (items.isEmpty()) return
+        val popup = JPopupMenu()
+        popup.background = Color(0x3c, 0x3f, 0x41)
+        popup.border = CustomRoundedBorder(Color(0x4d, 0x4d, 0x4d), 4)
+
+        for ((idx, itemStr) in items.withIndex()) {
+            val item = JMenuItem(itemStr).apply {
+                font = Font("Inter", Font.PLAIN, 13)
+                foreground = Color(0xa9, 0xb7, 0xc6)
+                background = if (idx == selectedIndex) Color(0x35, 0x74, 0xf0) else Color(0x3c, 0x3f, 0x41)
+                border = EmptyBorder(6, 12, 6, 12)
+                addActionListener {
+                    selectedIndex = idx
+                    this@CustomSelectDropdown.text = itemStr
+                    onSelectCallback?.invoke()
+                }
+            }
+            popup.add(item)
+        }
+        popup.show(this, 0, height + 2)
+    }
+
+    override fun paintComponent(g: Graphics) {
+        if (isHovered) {
+            val g2d = g.create() as Graphics2D
+            g2d.color = Color(255, 255, 255, 13)
+            g2d.fillRoundRect(0, 0, width, height, 4, 4)
+            g2d.dispose()
+        }
+        super.paintComponent(g)
+
+        // Draw Chevron Arrow SVG icon at right
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.color = foreground
+        val arrowX = width - 14
+        val arrowY = height / 2 - 2
+        val xPoints = intArrayOf(arrowX, arrowX + 8, arrowX + 4)
+        val yPoints = intArrayOf(arrowY, arrowY, arrowY + 4)
+        g2.fillPolygon(xPoints, yPoints, 3)
+        g2.dispose()
+    }
+}
+
+// --- CUSTOM SVG ICON BUTTON & SEND BUTTON ---
+
+enum class SvgType { CLOCK, MORE, PLUS, CLOSE, TRASH }
+
+class SvgIconButton(
+    private val svgType: SvgType,
     tooltip: String = "",
-    private var onClickListener: (() -> Unit)? = null
+    private val onClick: () -> Unit
 ) : JLabel() {
     private var isHovered = false
-    private var isActive = false
 
     init {
         toolTipText = tooltip
+        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        preferredSize = Dimension(24, 24)
+
+        addMouseListener(object : MouseAdapter() {
+            override fun mouseEntered(e: MouseEvent) { isHovered = true; repaint() }
+            override fun mouseExited(e: MouseEvent) { isHovered = false; repaint() }
+            override fun mouseClicked(e: MouseEvent) { onClick() }
+        })
+    }
+
+    override fun paintComponent(g: Graphics) {
+        super.paintComponent(g)
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+        if (isHovered) {
+            g2.color = Color(255, 255, 255, 13)
+            g2.fillRoundRect(0, 0, width, height, 4, 4)
+        }
+
+        g2.color = if (isHovered) Color(0xd4, 0xd4, 0xd4) else Color(0x8c, 0x8c, 0x8c)
+        val cx = width / 2
+        val cy = height / 2
+
+        when (svgType) {
+            SvgType.CLOCK -> {
+                g2.stroke = BasicStroke(1.5f)
+                g2.drawOval(cx - 7, cy - 7, 14, 14)
+                g2.drawLine(cx, cy - 4, cx, cy)
+                g2.drawLine(cx, cy, cx + 3, cy + 2)
+            }
+            SvgType.MORE -> {
+                g2.fillOval(cx - 2, cy - 6, 4, 4)
+                g2.fillOval(cx - 2, cy - 2, 4, 4)
+                g2.fillOval(cx - 2, cy + 2, 4, 4)
+            }
+            SvgType.PLUS -> {
+                g2.stroke = BasicStroke(1.5f)
+                g2.drawLine(cx - 5, cy, cx + 5, cy)
+                g2.drawLine(cx, cy - 5, cx, cy + 5)
+            }
+            SvgType.CLOSE -> {
+                g2.stroke = BasicStroke(1.5f)
+                g2.drawLine(cx - 4, cy - 4, cx + 4, cy + 4)
+                g2.drawLine(cx + 4, cy - 4, cx - 4, cy + 4)
+            }
+            SvgType.TRASH -> {
+                g2.stroke = BasicStroke(1.2f)
+                g2.drawRect(cx - 4, cy - 2, 8, 8)
+                g2.drawLine(cx - 5, cy - 4, cx + 5, cy - 4)
+                g2.drawLine(cx - 2, cy - 6, cx + 2, cy - 6)
+            }
+        }
+        g2.dispose()
+    }
+}
+
+class CustomSendIconButton : JLabel() {
+    private var isHasText = false
+    private var isStreaming = false
+    private var isHovered = false
+    private var onClickListener: (() -> Unit)? = null
+
+    init {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         preferredSize = Dimension(24, 24)
 
@@ -926,18 +1174,18 @@ class IconButton(
         })
     }
 
-    fun addActionListener(listener: () -> Unit) {
-        this.onClickListener = listener
-    }
-
-    fun setIconType(type: IconType) {
-        this.iconType = type
+    fun setHasText(hasText: Boolean) {
+        this.isHasText = hasText
         repaint()
     }
 
-    fun setActiveState(active: Boolean) {
-        this.isActive = active
+    fun setIsStreaming(streaming: Boolean) {
+        this.isStreaming = streaming
         repaint()
+    }
+
+    fun setOnClickListener(onClick: () -> Unit) {
+        this.onClickListener = onClick
     }
 
     override fun paintComponent(g: Graphics) {
@@ -945,61 +1193,23 @@ class IconButton(
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-        val color = when {
-            iconType == IconType.STOP -> Color(0xf4, 0x87, 0x71)
-            iconType == IconType.TRASH && isHovered -> Color(0xe5, 0x5a, 0x5a)
-            iconType == IconType.TRASH -> Color(0xc7, 0x54, 0x50)
-            isHovered -> Color(0xd4, 0xd4, 0xd4)
-            isActive -> Color(0xd4, 0xd4, 0xd4)
-            else -> Color(0x8c, 0x8c, 0x8c)
-        }
-        g2.color = color
-
         val cx = width / 2
         val cy = height / 2
 
-        when (iconType) {
-            IconType.CLOCK -> {
-                g2.stroke = BasicStroke(1.5f)
-                g2.drawOval(cx - 7, cy - 7, 14, 14)
-                g2.drawLine(cx, cy - 4, cx, cy)
-                g2.drawLine(cx, cy, cx + 3, cy + 2)
-            }
-            IconType.MORE -> {
-                g2.fillOval(cx - 2, cy - 6, 4, 4)
-                g2.fillOval(cx - 2, cy - 2, 4, 4)
-                g2.fillOval(cx - 2, cy + 2, 4, 4)
-            }
-            IconType.PLUS -> {
-                g2.stroke = BasicStroke(1.5f)
-                g2.drawLine(cx - 5, cy, cx + 5, cy)
-                g2.drawLine(cx, cy - 5, cx, cy + 5)
-            }
-            IconType.CLOSE -> {
-                g2.stroke = BasicStroke(1.5f)
-                g2.drawLine(cx - 4, cy - 4, cx + 4, cy + 4)
-                g2.drawLine(cx + 4, cy - 4, cx - 4, cy + 4)
-            }
-            IconType.TRASH -> {
-                g2.stroke = BasicStroke(1.2f)
-                g2.drawRect(cx - 4, cy - 2, 8, 8)
-                g2.drawLine(cx - 5, cy - 4, cx + 5, cy - 4)
-                g2.drawLine(cx - 2, cy - 6, cx + 2, cy - 6)
-            }
-            IconType.SEND -> {
-                val xPoints = intArrayOf(cx - 6, cx + 6, cx - 6, cx - 3)
-                val yPoints = intArrayOf(cy - 6, cy, cy + 6, cy)
-                g2.fillPolygon(xPoints, yPoints, 4)
-            }
-            IconType.STOP -> {
-                g2.fillRect(cx - 5, cy - 5, 10, 10)
-            }
+        if (isStreaming) {
+            g2.color = if (isHovered) Color(0xff, 0x6b, 0x4a) else Color(0xf4, 0x87, 0x71)
+            g2.fillRect(cx - 5, cy - 5, 10, 10)
+        } else {
+            g2.color = if (isHasText || isHovered) Color(0xd4, 0xd4, 0xd4) else Color(0x8c, 0x8c, 0x8c)
+            val xPoints = intArrayOf(cx - 6, cx + 6, cx - 6, cx - 3)
+            val yPoints = intArrayOf(cy - 6, cy, cy + 6, cy)
+            g2.fillPolygon(xPoints, yPoints, 4)
         }
         g2.dispose()
     }
 }
 
-class PlaceholderTextArea(private val placeholder: String) : JTextArea() {
+class CustomPlaceholderTextArea(private val placeholder: String) : JTextArea() {
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
         if (text.isEmpty()) {
@@ -1015,7 +1225,7 @@ class PlaceholderTextArea(private val placeholder: String) : JTextArea() {
     }
 }
 
-class RoundedBorder(private val color: Color, private val radius: Int) : AbstractBorder() {
+class CustomRoundedBorder(private val color: Color, private val radius: Int) : AbstractBorder() {
     override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, width: Int, height: Int) {
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
