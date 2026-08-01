@@ -1,14 +1,14 @@
-<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="grad4" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00FF87"/>
-      <stop offset="100%" stop-color="#60EFFF"/>
-    </linearGradient>
-  </defs>
-  <rect width="40" height="40" rx="8" fill="#1e1f22"/>
-  <path d="M14 12 C10 12, 8 16, 8 20 C8 24, 10 28, 14 28" fill="none" stroke="url(#grad4)" stroke-width="4" stroke-linecap="round"/>
-  <path d="M26 12 C30 12, 32 16, 32 20 C32 24, 30 28, 26 28" fill="none" stroke="url(#grad4)" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="16" cy="20" r="3" fill="#FFFFFF"/>
-  <circle cx="24" cy="20" r="3" fill="#FFFFFF"/>
-  <path d="M16 12 L24 12" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <!-- Left bracket arc -->
+  <path d="M5.5 2.5 C3.5 2.5, 2 4.5, 2 7.5 C2 10.5, 3.5 12.5, 5.5 12.5"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- Right bracket arc -->
+  <path d="M10.5 2.5 C12.5 2.5, 14 4.5, 14 7.5 C14 10.5, 12.5 12.5, 10.5 12.5"
+        fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- Left eye -->
+  <circle cx="5.5" cy="7.5" r="1.1" fill="currentColor"/>
+  <!-- Right eye -->
+  <circle cx="10.5" cy="7.5" r="1.1" fill="currentColor"/>
+  <!-- Antenna bar -->
+  <line x1="5.5" y1="2.5" x2="10.5" y2="2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
 </svg>

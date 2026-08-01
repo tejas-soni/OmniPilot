@@ -50,14 +50,6 @@
         "title": "OmniPilot: Open Settings"
       }
     ],
-    "icons": {
-      "omnipilot": {
-        "description": "OmniPilot logo icon",
-        "default": {
-          "fontPath": "resources/omnipilot-icon.svg"
-        }
-      }
-    },
     "configuration": {
       "title": "OmniPilot",
       "properties": {
