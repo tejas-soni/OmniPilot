@@ -14,6 +14,9 @@ class OmniPilotToolWindowFactory : ToolWindowFactory {
         val icon = IconLoader.getIcon("/icons/toolWindowIcon.svg", OmniPilotToolWindowFactory::class.java)
         toolWindow.setIcon(icon)
 
+        // Ensure language server process is started
+        com.omnipilot.server.OmniPilotProcessManager.ensureStarted()
+
         val contentFactory = ContentFactory.getInstance()
 
         // Auto-detect JCEF: if available, use the rich web UI; otherwise, use native Swing chat

@@ -689,6 +689,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val editorContext = ContextService.getCurrentContext(project)
         val osInfo = System.getProperty("os.name")
 
+        OmniPilotProcessManager.ensureStarted()
         val rpc = OmniPilotProcessManager.rpcClient
         if (rpc == null) {
             appendAssistantBubble("Error: OmniPilot language server is not connected.")
@@ -772,25 +773,16 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
     // --- USER & ASSISTANT BUBBLE BUILDERS ---
     private fun appendUserBubble(text: String) {
-        val bubble = JPanel(BorderLayout()).apply {
-            background = Color(0x2b, 0x2d, 0x30)
-            border = CompoundBorder(
-                CustomRoundedBorder(Color(0x3c, 0x3f, 0x41), 8),
-                EmptyBorder(12, 16, 12, 16)
-            )
-        }
-
-        val userLabel = JLabel("<html><body style='color:#d4d4d4; font-family:sans-serif; font-size:14px; line-height:1.6;'>" +
-                "${escapeHtml(text)}</body></html>")
-        bubble.add(userLabel, BorderLayout.CENTER)
-
-        val wrapper = JPanel(BorderLayout()).apply {
+        val card = UserBubbleCard(text)
+        val row = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
             isOpaque = false
-            border = EmptyBorder(0, 50, 20, 0)
+            border = EmptyBorder(0, 50, 16, 0)
+            alignmentX = Component.RIGHT_ALIGNMENT
         }
-        wrapper.add(bubble, BorderLayout.EAST)
+        row.add(card)
+        row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
 
-        messageContainer.add(wrapper)
+        messageContainer.add(row)
         messageContainer.revalidate()
         scrollBottomIfNear()
     }
@@ -1209,12 +1201,35 @@ class CustomSendIconButton : JLabel() {
     }
 }
 
+class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
+    init {
+        isOpaque = false
+        border = EmptyBorder(10, 16, 10, 16)
+        val cleanHtml = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:14px; line-height:1.5;'>$cleanHtml</body></html>")
+        add(lbl, BorderLayout.CENTER)
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+        g2.color = Color(0x2b, 0x2d, 0x30)
+        g2.fillRoundRect(0, 0, width - 1, height - 1, 16, 16)
+        g2.color = Color(0x3c, 0x3f, 0x41)
+        g2.drawRoundRect(0, 0, width - 1, height - 1, 16, 16)
+        g2.dispose()
+        super.paintComponent(g)
+    }
+}
+
 class CustomPlaceholderTextArea(private val placeholder: String) : JTextArea() {
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
         if (text.isEmpty()) {
             val g2 = g.create() as Graphics2D
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
             g2.color = Color(0x6c, 0x6c, 0x6c)
             g2.font = font
             val fm = g2.fontMetrics
@@ -1225,18 +1240,23 @@ class CustomPlaceholderTextArea(private val placeholder: String) : JTextArea() {
     }
 }
 
-class CustomRoundedBorder(private val color: Color, private val radius: Int) : AbstractBorder() {
+class CustomRoundedBorder(
+    private val color: Color,
+    private val radius: Int,
+    private val strokeWidth: Float = 1.0f
+) : AbstractBorder() {
     override fun paintBorder(c: Component, g: Graphics, x: Int, y: Int, width: Int, height: Int) {
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2.color = color
-        g2.drawRoundRect(x, y, width - 1, height - 1, radius, radius)
+        g2.stroke = BasicStroke(strokeWidth)
+        g2.drawRoundRect(x + 1, y + 1, width - 3, height - 3, radius, radius)
         g2.dispose()
     }
 
-    override fun getBorderInsets(c: Component): Insets = Insets(1, 1, 1, 1)
+    override fun getBorderInsets(c: Component): Insets = Insets(2, 2, 2, 2)
     override fun getBorderInsets(c: Component, insets: Insets): Insets {
-        insets.set(1, 1, 1, 1)
+        insets.set(2, 2, 2, 2)
         return insets
     }
 }

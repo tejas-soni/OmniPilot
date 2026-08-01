@@ -9,11 +9,17 @@ object OmniPilotProcessManager {
     var rpcClient: JsonRpcClient? = null
         private set
 
-    fun startServer(pluginRootDir: File) {
-        if (process != null && process!!.isAlive) {
-            LOG.info("OmniPilot language server is already running.")
+    fun ensureStarted() {
+        if (process != null && process!!.isAlive && rpcClient != null) {
             return
         }
+        val pluginId = com.intellij.openapi.extensions.PluginId.getId("com.omnipilot")
+        val pluginDescriptor = com.intellij.ide.plugins.PluginManagerCore.getPlugin(pluginId)
+        val pluginRootDir = pluginDescriptor?.pluginPath?.toFile() ?: File(".")
+        startServer(pluginRootDir)
+    }
+
+    fun startServer(pluginRootDir: File) {
 
         try {
             val osName = System.getProperty("os.name").lowercase()
