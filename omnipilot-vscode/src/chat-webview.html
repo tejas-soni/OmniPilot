@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src data:;">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>OmniPilot AI Chat</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--vscode-font-family, 'Segoe UI', sans-serif);
+    font-size: 13px;
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  /* HEADER */
+  #header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--vscode-panel-border, #333);
+    flex-shrink: 0;
+  }
+  #header-title { font-weight: 600; font-size: 13px; }
+  #header-actions { display: flex; align-items: center; gap: 8px; }
+  .hdr-btn {
+    background: none; border: none; color: var(--vscode-icon-foreground, #8c8c8c);
+    cursor: pointer; padding: 3px; border-radius: 3px; display: flex; align-items: center;
+    font-size: 12px;
+  }
+  .hdr-btn:hover { color: var(--vscode-editor-foreground, #d4d4d4); background: rgba(255,255,255,0.07); }
+  #new-chat-btn { font-size: 12px; }
+
+  /* CHAT AREA */
+  #chat-area {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px 16px 8px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  #chat-area::-webkit-scrollbar { width: 6px; }
+  #chat-area::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+
+  /* ONBOARDING */
+  #onboarding {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 12px;
+    text-align: center;
+    padding: 32px;
+    color: #8c8c8c;
+  }
+  #onboarding svg { opacity: 0.4; }
+  #onboarding h3 { font-size: 14px; font-weight: 600; color: #d4d4d4; }
+  #onboarding p { font-size: 12px; line-height: 1.5; }
+  #onboarding button {
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+    border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  #onboarding button:hover { opacity: 0.9; }
+
+  /* USER BUBBLE */
+  .user-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+    width: 100%;
+  }
+  .user-bubble {
+    background: var(--vscode-editor-inactiveSelectionBackground, #2b2d30);
+    border: 1px solid var(--vscode-panel-border, #3c3f41);
+    border-radius: 6px;
+    padding: 5px 10px;
+    max-width: 75%;
+    font-size: 13px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  /* ASSISTANT PANEL */
+  .assistant-row {
+    display: flex;
+    justify-content: flex-start;
+    margin-bottom: 10px;
+    width: 100%;
+  }
+  .assistant-panel {
+    max-width: 100%;
+    width: 100%;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .assistant-panel p { margin: 0 0 6px 0; }
+  .assistant-panel code {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
+    background: rgba(255,255,255,0.08);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  .assistant-panel pre {
+    background: #1e1f22;
+    border: 1px solid #3c3f41;
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 6px 0;
+    position: relative;
+  }
+  .assistant-panel pre code { background: none; padding: 0; font-size: 12px; }
+  .copy-btn {
+    position: absolute; top: 6px; right: 8px;
+    background: rgba(255,255,255,0.1); border: none; color: #aaa;
+    font-size: 11px; padding: 2px 7px; border-radius: 3px; cursor: pointer;
+  }
+  .copy-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+
+  /* THINKING BLOCK */
+  .thinking-block {
+    margin-bottom: 8px;
+    border-left: 2px solid #444;
+    padding-left: 10px;
+  }
+  .thinking-toggle {
+    font-size: 12px;
+    color: #7a7a7a;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .thinking-toggle:hover { color: #a9b7c6; }
+  .thinking-content {
+    font-size: 11px;
+    color: #7a7a7a;
+    line-height: 1.4;
+    margin-top: 6px;
+    display: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .thinking-content.open { display: block; }
+
+  /* INPUT AREA */
+  #input-wrapper {
+    flex-shrink: 0;
+    padding: 8px 12px 10px 12px;
+    border-top: 1px solid var(--vscode-panel-border, #333);
+  }
+  #input-container {
+    border: 1px solid var(--vscode-panel-border, #3c3f41);
+    border-radius: 6px;
+    background: var(--vscode-input-background, #1e1e1e);
+    overflow: hidden;
+  }
+  #input-container.focused { border-color: var(--vscode-focusBorder, #007fd4); }
+  #input-textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    font-family: var(--vscode-font-family, sans-serif);
+    font-size: 13px;
+    padding: 8px 10px;
+    resize: none;
+    min-height: 36px;
+    max-height: 140px;
+    overflow-y: auto;
+    line-height: 1.4;
+  }
+  #input-textarea::placeholder { color: #666; }
+  #toolbar {
+    display: flex;
+    align-items: center;
+    padding: 4px 6px 6px 6px;
+    gap: 4px;
+  }
+  .tool-left { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+  .dropdown-btn {
+    background: none;
+    border: 1px solid transparent;
+    color: #8c8c8c;
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    position: relative;
+  }
+  .dropdown-btn:hover { background: rgba(255,255,255,0.07); color: #d4d4d4; border-color: #3c3f41; }
+  .attach-btn {
+    background: none; border: none; color: #8c8c8c;
+    font-size: 14px; padding: 2px 5px; cursor: pointer; border-radius: 3px; flex-shrink: 0;
+  }
+  .attach-btn:hover { color: #d4d4d4; background: rgba(255,255,255,0.07); }
+  .dropdown-menu {
+    position: fixed;
+    background: #2d2d2d;
+    border: 1px solid #4d4d4d;
+    border-radius: 4px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+    z-index: 9999;
+    min-width: 160px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+  }
+  .dropdown-menu.open { display: block; }
+  .dropdown-item {
+    padding: 6px 12px; font-size: 12px; color: #a9b7c6;
+    cursor: pointer; white-space: nowrap;
+  }
+  .dropdown-item:hover { background: #3a3a3a; color: #fff; }
+  .dropdown-item.selected { background: rgba(14, 99, 156, 0.35); color: #fff; }
+  .dropdown-menu::-webkit-scrollbar { width: 6px; }
+  .dropdown-menu::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+  #send-btn {
+    background: none; border: none;
+    color: #555; font-size: 16px; cursor: pointer;
+    padding: 2px 5px; border-radius: 3px; flex-shrink: 0;
+    margin-left: auto;
+  }
+  #send-btn.active { color: var(--vscode-button-background, #0e639c); }
+  #send-btn:hover.active { opacity: 0.85; }
+
+  /* HISTORY SIDEBAR */
+  #history-overlay {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 0; overflow: hidden;
+    background: var(--vscode-sideBar-background, #252526);
+    border-left: 1px solid var(--vscode-panel-border, #333);
+    transition: width 0.2s ease;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+  }
+  #history-overlay.open { width: 260px; }
+  #history-header {
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #8c8c8c;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #333;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  #history-close {
+    background: none; border: none; color: #8c8c8c; cursor: pointer; font-size: 14px; padding: 0;
+  }
+  #history-close:hover { color: #d4d4d4; }
+  #history-list { overflow-y: auto; flex: 1; padding: 8px 0; }
+  .history-group-label {
+    padding: 6px 12px 3px 12px;
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .history-item {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #a9b7c6;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .history-item:hover { background: rgba(255,255,255,0.05); }
+  .history-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history-delete-btn {
+    background: none; border: none; color: transparent;
+    font-size: 12px; cursor: pointer; padding: 0 2px; flex-shrink: 0;
+  }
+  .history-item:hover .history-delete-btn { color: #666; }
+  .history-delete-btn:hover { color: #f48771 !important; }
+
+  /* MAIN LAYOUT */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+</style>
+</head>
+<body>
+<div id="header">
+  <span id="header-title">AI Chat</span>
+  <div id="header-actions">
+    <button class="hdr-btn" id="new-chat-btn" title="New Chat">+ New Chat</button>
+    <button class="hdr-btn" id="history-btn" title="Chat History">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1a6 6 0 110 12A6 6 0 018 2zm-.5 3v4.25l3.25 1.875-.5.866L7 9.75V5h.5z"/>
+      </svg>
+    </button>
+    <button class="hdr-btn" id="settings-btn" title="Settings">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M9.1 1L8.8 2.5a5.5 5.5 0 00-1.6 0L6.9 1H5.1l-.5 1.3A5.5 5.5 0 003.3 3.5L2 3.3l-.9 1.7 1 1a5.5 5.5 0 000 1.6l-1 1 .9 1.7 1.3-.2A5.5 5.5 0 005.1 11l.3 1.5h1.8l.3-1.5a5.5 5.5 0 001.6-.6l1 .2.9-1.7-1-1a5.5 5.5 0 000-1.6l1-1L10 3.3l-1.3.2A5.5 5.5 0 007.1 2.8zM8 5.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<div id="main">
+  <!-- Onboarding panel (shown when no providers) -->
+  <div id="onboarding" style="display:none;">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 8v4m0 4h.01"/>
+    </svg>
+    <h3>No Provider Configured</h3>
+    <p>Add an OpenAI-compatible provider to start chatting.<br>Supports Groq, OpenAI, Ollama, NVIDIA NIM, and more.</p>
+    <button id="onboarding-settings-btn">Open Settings →</button>
+  </div>
+
+  <!-- Chat messages area -->
+  <div id="chat-area"></div>
+
+  <!-- Input area -->
+  <div id="input-wrapper">
+    <div id="input-container">
+      <textarea id="input-textarea" placeholder="Message OmniPilot..." rows="1"></textarea>
+      <div id="toolbar">
+        <div class="tool-left">
+          <button class="attach-btn" id="attach-btn" title="Attach">+</button>
+          <button class="dropdown-btn" id="provider-btn" title="Select Provider">
+            <span id="provider-label">No Provider</span> ▾
+          </button>
+          <button class="dropdown-btn" id="model-btn" title="Select Model">
+            <span id="model-label">No Model</span> ▾
+          </button>
+          <button class="dropdown-btn" id="mode-btn" title="Select Mode">
+            <span id="mode-label">Chat (Ask)</span> ▾
+          </button>
+        </div>
+        <button id="send-btn" title="Send">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- History sidebar -->
+  <div id="history-overlay">
+    <div id="history-header">
+      <span>History</span>
+      <button id="history-close">✕</button>
+    </div>
+    <div id="history-list"></div>
+  </div>
+</div>
+
+<!-- Dropdown menus (rendered at body level to avoid clipping) -->
+<div class="dropdown-menu" id="provider-menu"></div>
+<div class="dropdown-menu" id="model-menu"></div>
+<div class="dropdown-menu" id="mode-menu">
+  <div class="dropdown-item" data-value="Chat (Ask)">Chat (Ask)</div>
+  <div class="dropdown-item" data-value="Agent (Auto)">Agent (Auto)</div>
+  <div class="dropdown-item" data-value="Read-Only">Read-Only</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const vscode = acquireVsCodeApi();
+let state = {
+  providers: [],
+  activeProviderId: '',
+  activeModel: '',
+  activeMode: 'Chat (Ask)',
+  sessionId: generateId(),
+  messages: [],
+  isStreaming: false,
+  currentAssistantEl: null,
+  currentAssistantRaw: '',
+};
+
+function generateId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ---- DOM refs ----
+const chatArea = document.getElementById('chat-area');
+const inputTextarea = document.getElementById('input-textarea');
+const inputContainer = document.getElementById('input-container');
+const sendBtn = document.getElementById('send-btn');
+const providerBtn = document.getElementById('provider-btn');
+const modelBtn = document.getElementById('model-btn');
+const modeBtn = document.getElementById('mode-btn');
+const providerLabel = document.getElementById('provider-label');
+const modelLabel = document.getElementById('model-label');
+const modeLabel = document.getElementById('mode-label');
+const providerMenu = document.getElementById('provider-menu');
+const modelMenu = document.getElementById('model-menu');
+const modeMenu = document.getElementById('mode-menu');
+const historyOverlay = document.getElementById('history-overlay');
+const historyList = document.getElementById('history-list');
+const onboarding = document.getElementById('onboarding');
+
+// ---- Dropdown logic ----
+function positionMenu(btn, menu) {
+  const rect = btn.getBoundingClientRect();
+  menu.style.left = rect.left + 'px';
+  menu.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+  menu.style.top = 'auto';
+}
+
+function openMenu(btn, menu) {
+  closeAllMenus();
+  positionMenu(btn, menu);
+  menu.classList.add('open');
+}
+
+function closeAllMenus() {
+  [providerMenu, modelMenu, modeMenu].forEach(m => m.classList.remove('open'));
+}
+
+document.addEventListener('click', closeAllMenus);
+
+providerBtn.addEventListener('click', (e) => { e.stopPropagation(); openMenu(providerBtn, providerMenu); });
+modelBtn.addEventListener('click', (e) => { e.stopPropagation(); openMenu(modelBtn, modelMenu); });
+modeBtn.addEventListener('click', (e) => { e.stopPropagation(); openMenu(modeBtn, modeMenu); });
+
+function buildProviderMenu() {
+  providerMenu.innerHTML = '';
+  state.providers.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'dropdown-item' + (p.id === state.activeProviderId ? ' selected' : '');
+    item.textContent = p.name;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.activeProviderId = p.id;
+      providerLabel.textContent = p.name;
+      closeAllMenus();
+      vscode.postMessage({ type: 'fetchModels', providerId: p.id });
+    });
+    providerMenu.appendChild(item);
+  });
+}
+
+function buildModelMenu(models) {
+  modelMenu.innerHTML = '';
+  models.forEach(m => {
+    const item = document.createElement('div');
+    item.className = 'dropdown-item' + (m === state.activeModel ? ' selected' : '');
+    item.textContent = m;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.activeModel = m;
+      modelLabel.textContent = truncate(m, 18);
+      modelBtn.title = m;
+      closeAllMenus();
+    });
+    modelMenu.appendChild(item);
+  });
+}
+
+modeMenu.querySelectorAll('.dropdown-item').forEach(item => {
+  item.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.activeMode = item.dataset.value;
+    modeLabel.textContent = state.activeMode;
+    closeAllMenus();
+  });
+});
+
+function truncate(str, len) {
+  return str.length > len ? str.slice(0, len) + '…' : str;
+}
+
+// ---- Input ----
+inputTextarea.addEventListener('focus', () => inputContainer.classList.add('focused'));
+inputTextarea.addEventListener('blur', () => inputContainer.classList.remove('focused'));
+inputTextarea.addEventListener('input', () => {
+  inputTextarea.style.height = 'auto';
+  inputTextarea.style.height = inputTextarea.scrollHeight + 'px';
+  sendBtn.classList.toggle('active', inputTextarea.value.trim().length > 0);
+});
+inputTextarea.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+sendBtn.addEventListener('click', sendMessage);
+
+function sendMessage() {
+  if (state.isStreaming) {
+    vscode.postMessage({ type: 'cancelStream' });
+    return;
+  }
+  const text = inputTextarea.value.trim();
+  if (!text || !state.activeProviderId) return;
+  const provider = state.providers.find(p => p.id === state.activeProviderId);
+  if (!provider) return;
+
+  inputTextarea.value = '';
+  inputTextarea.style.height = 'auto';
+  sendBtn.classList.remove('active');
+
+  appendUserBubble(text);
+  state.messages.push({ role: 'user', content: text });
+
+  state.isStreaming = true;
+  state.currentAssistantRaw = '';
+  state.currentAssistantEl = appendAssistantPanel('…');
+
+  vscode.postMessage({
+    type: 'sendMessage',
+    text,
+    sessionId: state.sessionId,
+    messages: state.messages,
+    providerId: state.activeProviderId,
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    model: state.activeModel,
+    mode: state.activeMode
+  });
+}
+
+// ---- Render messages ----
+function appendUserBubble(text) {
+  const row = document.createElement('div');
+  row.className = 'user-row';
+  const bubble = document.createElement('div');
+  bubble.className = 'user-bubble';
+  bubble.textContent = text;
+  row.appendChild(bubble);
+  chatArea.appendChild(row);
+  scrollBottom();
+}
+
+function appendAssistantPanel(initialText) {
+  const row = document.createElement('div');
+  row.className = 'assistant-row';
+  const panel = document.createElement('div');
+  panel.className = 'assistant-panel';
+  panel.innerHTML = '<span class="streaming-cursor">…</span>';
+  row.appendChild(panel);
+  chatArea.appendChild(row);
+  scrollBottom();
+  return panel;
+}
+
+function updateAssistantPanel(panel, rawText) {
+  let text = rawText;
+  let thinkHtml = '';
+
+  const thinkStart = text.indexOf('<think>');
+  if (thinkStart !== -1) {
+    const thinkEnd = text.indexOf('</think>');
+    let thinkContent = '';
+    if (thinkEnd > thinkStart) {
+      thinkContent = text.slice(thinkStart + 7, thinkEnd).trim();
+      text = text.slice(thinkEnd + 8).trim();
+    } else {
+      thinkContent = text.slice(thinkStart + 7).trim();
+      text = '';
+    }
+    if (thinkContent) {
+      const escapedThink = thinkContent.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      thinkHtml = `<div class="thinking-block">
+        <button class="thinking-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.textContent=this.nextElementSibling.classList.contains('open')?'▼ Thought process':'▶ Thought process'">▶ Thought process</button>
+        <div class="thinking-content">${escapedThink}</div>
+      </div>`;
+    }
+  }
+
+  let mainHtml = '';
+  if (text) {
+    try { mainHtml = marked.parse(text); } catch { mainHtml = text.replace(/\n/g,'<br>'); }
+    // Add copy buttons to code blocks
+    mainHtml = mainHtml.replace(/<pre><code([^>]*)>([\s\S]*?)<\/code><\/pre>/g,
+      (_,attrs,code) => `<pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code${attrs}>${code}</code></pre>`);
+  }
+
+  panel.innerHTML = thinkHtml + mainHtml + (state.isStreaming && panel === state.currentAssistantEl ? '<span class="streaming-cursor">▌</span>' : '');
+  scrollBottom();
+}
+
+window.copyCode = function(btn) {
+  const code = btn.nextElementSibling.textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  });
+};
+
+function scrollBottom() {
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// ---- History sidebar ----
+document.getElementById('history-btn').addEventListener('click', () => {
+  const open = historyOverlay.classList.toggle('open');
+  if (open) vscode.postMessage({ type: 'loadHistory' });
+});
+document.getElementById('history-close').addEventListener('click', () => {
+  historyOverlay.classList.remove('open');
+});
+
+function renderHistory(sessions) {
+  historyList.innerHTML = '';
+  if (!sessions || sessions.length === 0) {
+    historyList.innerHTML = '<div style="padding:12px;color:#555;font-size:12px;">No chat history</div>';
+    return;
+  }
+  const now = Date.now();
+  const groups = { 'Today': [], 'Yesterday': [], 'Previous 7 Days': [], 'Older': [] };
+  sessions.forEach(s => {
+    const diff = (now - s.timestamp) / 86400000;
+    if (diff < 1) groups['Today'].push(s);
+    else if (diff < 2) groups['Yesterday'].push(s);
+    else if (diff < 7) groups['Previous 7 Days'].push(s);
+    else groups['Older'].push(s);
+  });
+  Object.entries(groups).forEach(([label, items]) => {
+    if (!items.length) return;
+    const grp = document.createElement('div');
+    grp.className = 'history-group-label';
+    grp.textContent = label;
+    historyList.appendChild(grp);
+    items.forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      item.innerHTML = `<span class="history-item-title">${s.title || 'Chat'}</span>
+        <button class="history-delete-btn" title="Delete">✕</button>`;
+      item.querySelector('.history-item-title').addEventListener('click', () => {
+        vscode.postMessage({ type: 'loadSession', id: s.id });
+        historyOverlay.classList.remove('open');
+      });
+      item.querySelector('.history-delete-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({ type: 'deleteSession', id: s.id });
+        item.remove();
+      });
+      historyList.appendChild(item);
+    });
+  });
+}
+
+// ---- New Chat ----
+document.getElementById('new-chat-btn').addEventListener('click', newChat);
+function newChat() {
+  state.sessionId = generateId();
+  state.messages = [];
+  state.currentAssistantEl = null;
+  state.currentAssistantRaw = '';
+  chatArea.innerHTML = '';
+  historyOverlay.classList.remove('open');
+  vscode.postMessage({ type: 'newChat' });
+}
+
+// ---- Settings ----
+document.getElementById('settings-btn').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+document.getElementById('onboarding-settings-btn').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+
+// ---- Receive messages from extension ----
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  switch (msg.type) {
+    case 'init': {
+      state.providers = msg.providers || [];
+      state.activeProviderId = msg.activeProviderId || (state.providers[0]?.id ?? '');
+      state.activeModel = msg.activeModel || '';
+      onboarding.style.display = state.providers.length === 0 ? 'flex' : 'none';
+      chatArea.style.display = state.providers.length === 0 ? 'none' : 'flex';
+      chatArea.style.flexDirection = 'column';
+
+      buildProviderMenu();
+      const activeProvider = state.providers.find(p => p.id === state.activeProviderId);
+      providerLabel.textContent = activeProvider?.name ?? 'No Provider';
+
+      if (state.activeModel) {
+        modelLabel.textContent = truncate(state.activeModel, 18);
+        buildModelMenu([state.activeModel]);
+      }
+      // Fetch models for active provider
+      if (state.activeProviderId) {
+        vscode.postMessage({ type: 'fetchModels', providerId: state.activeProviderId });
+      }
+      break;
+    }
+    case 'models': {
+      const models = msg.models || [];
+      if (models.length > 0) {
+        if (!state.activeModel) {
+          state.activeModel = models[0];
+          modelLabel.textContent = truncate(models[0], 18);
+          modelBtn.title = models[0];
+        }
+        buildModelMenu(models);
+      }
+      break;
+    }
+    case 'token': {
+      state.currentAssistantRaw += msg.token;
+      if (state.currentAssistantEl) {
+        updateAssistantPanel(state.currentAssistantEl, state.currentAssistantRaw);
+      }
+      break;
+    }
+    case 'complete': {
+      state.isStreaming = false;
+      if (state.currentAssistantEl) {
+        updateAssistantPanel(state.currentAssistantEl, state.currentAssistantRaw);
+      }
+      state.messages.push({ role: 'assistant', content: state.currentAssistantRaw });
+      state.currentAssistantEl = null;
+      break;
+    }
+    case 'error': {
+      state.isStreaming = false;
+      if (state.currentAssistantEl) {
+        state.currentAssistantEl.innerHTML = `<span style="color:#f48771">Error: ${msg.message}</span>`;
+      }
+      state.currentAssistantEl = null;
+      break;
+    }
+    case 'historyData': {
+      renderHistory(msg.sessions);
+      break;
+    }
+    case 'sessionLoaded': {
+      chatArea.innerHTML = '';
+      state.messages = msg.messages || [];
+      state.messages.forEach(m => {
+        if (m.role === 'user') appendUserBubble(m.content || '');
+        else if (m.role === 'assistant') {
+          const panel = appendAssistantPanel('');
+          state.isStreaming = false;
+          updateAssistantPanel(panel, m.content || '');
+        }
+      });
+      break;
+    }
+    case 'providersUpdated': {
+      state.providers = msg.providers || [];
+      buildProviderMenu();
+      onboarding.style.display = state.providers.length === 0 ? 'flex' : 'none';
+      chatArea.style.display = state.providers.length === 0 ? 'none' : 'flex';
+      if (state.providers.length > 0 && !state.activeProviderId) {
+        state.activeProviderId = state.providers[0].id;
+        providerLabel.textContent = state.providers[0].name;
+        vscode.postMessage({ type: 'fetchModels', providerId: state.activeProviderId });
+      }
+      break;
+    }
+  }
+});
+
+// Signal ready
+vscode.postMessage({ type: 'ready' });
+</script>
+</body>
+</html>

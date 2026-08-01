@@ -1,7 +1,7 @@
 {
   "name": "omnipilot-vscode",
   "displayName": "OmniPilot - Bring Your Own Model",
-  "description": "OmniPilot AI coding assistant extension for VS Code",
+  "description": "OmniPilot AI coding assistant — connect any OpenAI-compatible API to VS Code",
   "version": "1.1.0",
   "publisher": "omnipilot",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:omnipilot.chatView"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -39,6 +39,57 @@
           "name": "AI Chat"
         }
       ]
+    },
+    "commands": [
+      {
+        "command": "omnipilot.newChat",
+        "title": "OmniPilot: New Chat"
+      },
+      {
+        "command": "omnipilot.openSettings",
+        "title": "OmniPilot: Open Settings"
+      }
+    ],
+    "configuration": {
+      "title": "OmniPilot",
+      "properties": {
+        "omnipilot.providers": {
+          "type": "array",
+          "default": [],
+          "description": "List of AI providers. Each item: { id, name, baseUrl, apiKey, models }",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "apiKey": {
+                "type": "string"
+              },
+              "models": {
+                "type": "string",
+                "description": "Comma-separated model names, or leave blank to auto-fetch"
+              }
+            }
+          }
+        },
+        "omnipilot.activeProviderId": {
+          "type": "string",
+          "default": "",
+          "description": "The ID of the currently active provider"
+        },
+        "omnipilot.activeModel": {
+          "type": "string",
+          "default": "",
+          "description": "The currently selected model name"
+        }
+      }
     }
   },
   "scripts": {
