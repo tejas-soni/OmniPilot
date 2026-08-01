@@ -10,6 +10,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.omnipilot.actions.AgentActionService
 import com.omnipilot.actions.ContextService
 import com.omnipilot.api.ChatMessage
+import com.omnipilot.api.OpenAiApiClient
 import com.omnipilot.history.ChatSession
 import com.omnipilot.history.OmniPilotHistoryManager
 import com.omnipilot.server.OmniPilotProcessManager
@@ -61,6 +62,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private val modelDropdown = CustomSelectDropdown("Loading Models...")
     private val modeDropdown = CustomSelectDropdown("Chat (Ask)")
     private val sendBtn = CustomSendIconButton()
+    private val apiClient = OpenAiApiClient()
 
     // History Sidebar
     private val historyOverlay = JPanel(BorderLayout())
@@ -338,29 +340,35 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
 
         inputContainer.add(inputTextArea, BorderLayout.CENTER)
 
-        // TOOLBAR INSIDE INPUT CONTAINER
-        val toolbar = JPanel(BorderLayout()).apply {
+        // TOOLBAR INSIDE INPUT CONTAINER MATCHING chat.html FLEXBOX
+        val toolbar = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
             border = EmptyBorder(6, 12, 10, 12)
         }
 
-        val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply { isOpaque = false }
         val attachBtn = SvgIconButton(SvgType.PLUS, "Attach Context") {
             // Attach context
         }
-        leftGroup.add(attachBtn)
-        leftGroup.add(providerDropdown)
-        providerDropdown.setOnSelect { onProviderSelected() }
-        toolbar.add(leftGroup, BorderLayout.WEST)
+        toolbar.add(attachBtn)
+        toolbar.add(Box.createRigidArea(Dimension(6, 0)))
 
-        val rightGroup = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { isOpaque = false }
-        rightGroup.add(modelDropdown)
-        rightGroup.add(modeDropdown)
+        providerDropdown.setOnSelect { onProviderSelected() }
+        toolbar.add(providerDropdown)
+
+        toolbar.add(Box.createHorizontalGlue())
+
+        modelDropdown.maximumSize = Dimension(Int.MAX_VALUE, 24)
+        toolbar.add(modelDropdown)
+
+        toolbar.add(Box.createHorizontalGlue())
+
+        toolbar.add(modeDropdown)
+        toolbar.add(Box.createRigidArea(Dimension(6, 0)))
 
         sendBtn.setOnClickListener { handleSendOrStop() }
-        rightGroup.add(sendBtn)
+        toolbar.add(sendBtn)
 
-        toolbar.add(rightGroup, BorderLayout.EAST)
         inputContainer.add(toolbar, BorderLayout.SOUTH)
 
         inputWrapper.add(inputContainer, BorderLayout.CENTER)
@@ -679,8 +687,6 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val settings = OmniPilotSettingsState.instance
         val provider = if (selectedProviderIndex >= 0 && selectedProviderIndex < settings.providers.size) settings.providers[selectedProviderIndex] else null
         val providerId = provider?.id ?: ""
-        val baseUrl = provider?.baseUrl ?: ""
-        val apiKey = com.omnipilot.settings.CredentialManager.getApiKey(providerId) ?: ""
         val selectedModel = modelDropdown.getSelectedValue()
         val modeStr = when (modeDropdown.getSelectedIndex()) {
             1 -> "AGENT"
@@ -688,10 +694,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
             else -> "CHAT"
         }
 
-        val editorContext = ContextService.getCurrentContext(project)
-        val osInfo = System.getProperty("os.name")
-
         OmniPilotProcessManager.ensureStarted()
+        setupServerListeners()
         val rpc = OmniPilotProcessManager.rpcClient
         if (rpc == null) {
             appendAssistantBubble("Error: OmniPilot language server is not connected.")
@@ -701,38 +705,36 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         setStreamingState(true)
         currentAssistantPanel = appendAssistantBubble("…")
 
-        val jsonPayload = """
-            {
-                "sessionId": "${currentSessionId}",
-                "messages": [{"role": "user", "content": ${quote(text)}}],
-                "providerId": "${quote(providerId)}",
-                "baseUrl": "${quote(baseUrl)}",
-                "apiKey": "${quote(apiKey)}",
-                "model": "${quote(selectedModel)}",
-                "mode": "${modeStr}",
-                "osInfo": "${quote(osInfo)}",
-                "editorContext": {
-                    "file": ${quote(editorContext.file?.path ?: "")},
-                    "content": ${quote(editorContext.content)},
-                    "selectedText": ${quote(editorContext.selectedText ?: "")},
-                    "language": ${quote(editorContext.language ?: "")}
-                }
-            }
-        """.trimIndent()
+        val messageHistory = currentMessages.toMutableList()
 
-        rpc.sendRequest("chat/send", jsonPayload) { _, errorJson ->
-            if (errorJson != null) {
+        apiClient.streamChatCompletion(
+            project = project,
+            providerId = providerId,
+            model = selectedModel,
+            messages = messageHistory,
+            mode = modeStr.lowercase(),
+            onToken = { token ->
                 SwingUtilities.invokeLater {
-                    currentAssistantPanel?.setContent("Error: $errorJson")
+                    currentAssistantPanel?.appendToken(token)
+                    scrollBottomIfNear()
+                }
+            },
+            onComplete = {
+                SwingUtilities.invokeLater {
+                    setStreamingState(false)
+                }
+            },
+            onError = { ex ->
+                SwingUtilities.invokeLater {
+                    currentAssistantPanel?.setContent("Error: ${ex.message}")
                     setStreamingState(false)
                 }
             }
-        }
+        )
     }
 
     private fun stopStreaming() {
-        val rpc = OmniPilotProcessManager.rpcClient
-        rpc?.sendNotification("chat/cancel", "{}")
+        apiClient.cancelCurrentStream()
         setStreamingState(false)
     }
 
@@ -751,8 +753,12 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         }
     }
 
+    private var isServerListenersAttached = false
+
     private fun setupServerListeners() {
         val rpc = OmniPilotProcessManager.rpcClient ?: return
+        if (isServerListenersAttached) return
+        isServerListenersAttached = true
 
         rpc.onNotification("chat/token") { params ->
             val token = params?.get("token")?.jsonPrimitive?.contentOrNull ?: ""
@@ -1009,13 +1015,14 @@ class CustomSelectDropdown(initialValue: String) : JLabel() {
     private var selectedIndex = 0
     private var onSelectCallback: (() -> Unit)? = null
     private var isHovered = false
+    private var fullTextStr: String = initialValue
 
     init {
         font = Font("Inter", Font.PLAIN, 13)
         foreground = Color(0xa9, 0xb7, 0xc6)
-        border = EmptyBorder(4, 8, 4, 18)
+        border = EmptyBorder(4, 8, 4, 20)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        setDisplayText(initialValue)
+        setFullText(initialValue)
 
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { isHovered = true; foreground = Color(0xd4, 0xd4, 0xd4); repaint() }
@@ -1024,16 +1031,17 @@ class CustomSelectDropdown(initialValue: String) : JLabel() {
         })
     }
 
-    private fun setDisplayText(fullStr: String) {
-        toolTipText = fullStr
-        text = if (fullStr.length > 14) fullStr.substring(0, 12) + "..." else fullStr
+    private fun setFullText(str: String) {
+        fullTextStr = str
+        toolTipText = str
+        repaint()
     }
 
     fun setItems(newItems: List<String>) {
         items.clear()
         items.addAll(newItems)
         selectedIndex = 0
-        setDisplayText(if (items.isNotEmpty()) items[0] else "")
+        setFullText(if (items.isNotEmpty()) items[0] else "")
         repaint()
     }
 
@@ -1058,7 +1066,7 @@ class CustomSelectDropdown(initialValue: String) : JLabel() {
                 border = EmptyBorder(6, 12, 6, 12)
                 addActionListener {
                     selectedIndex = idx
-                    this@CustomSelectDropdown.setDisplayText(itemStr)
+                    this@CustomSelectDropdown.setFullText(itemStr)
                     onSelectCallback?.invoke()
                 }
             }
@@ -1068,18 +1076,32 @@ class CustomSelectDropdown(initialValue: String) : JLabel() {
     }
 
     override fun paintComponent(g: Graphics) {
-        if (isHovered) {
-            val g2d = g.create() as Graphics2D
-            g2d.color = Color(255, 255, 255, 13)
-            g2d.fillRoundRect(0, 0, width, height, 4, 4)
-            g2d.dispose()
-        }
-        super.paintComponent(g)
-
-        // Draw Chevron Arrow SVG icon at right
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+
+        if (isHovered) {
+            g2.color = Color(255, 255, 255, 13)
+            g2.fillRoundRect(0, 0, width, height, 4, 4)
+        }
+
+        val availW = (width - 22).coerceAtLeast(10)
+        val fm = g2.fontMetrics
+        var dispText = fullTextStr
+        if (fm.stringWidth(dispText) > availW) {
+            var len = dispText.length
+            while (len > 1 && fm.stringWidth(dispText.substring(0, len) + "...") > availW) {
+                len--
+            }
+            dispText = dispText.substring(0, len) + "..."
+        }
+
         g2.color = foreground
+        g2.font = font
+        val textY = (height - fm.height) / 2 + fm.ascent
+        g2.drawString(dispText, 8, textY)
+
+        // Draw Chevron Arrow SVG icon at right
         val arrowX = width - 14
         val arrowY = height / 2 - 2
         val xPoints = intArrayOf(arrowX, arrowX + 8, arrowX + 4)
