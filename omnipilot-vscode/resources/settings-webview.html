@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>OmniPilot Settings</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--vscode-font-family, 'Segoe UI', sans-serif);
+    font-size: 13px;
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    padding: 24px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 20px; font-weight: 400; margin-bottom: 6px; color: #d4d4d4; }
+  h2 { font-size: 15px; font-weight: 400; margin-bottom: 20px; color: #888; }
+  .section { margin-bottom: 24px; }
+  .section-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #888;
+    margin-bottom: 10px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  label {
+    min-width: 120px;
+    font-size: 13px;
+    color: #ccc;
+    flex-shrink: 0;
+  }
+  input[type="text"], input[type="password"], input[type="url"] {
+    flex: 1;
+    background: var(--vscode-input-background, #1e1e1e);
+    border: 1px solid var(--vscode-input-border, #3c3f41);
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    padding: 5px 8px;
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+  input[type="text"]:focus, input[type="password"]:focus, input[type="url"]:focus {
+    border-color: var(--vscode-focusBorder, #007fd4);
+  }
+  select {
+    background: var(--vscode-dropdown-background, #1e1e1e);
+    border: 1px solid var(--vscode-dropdown-border, #3c3f41);
+    color: var(--vscode-editor-foreground, #d4d4d4);
+    padding: 5px 8px;
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+    min-width: 160px;
+  }
+  select:focus { border-color: var(--vscode-focusBorder, #007fd4); }
+  .btn {
+    background: var(--vscode-button-secondaryBackground, #2d2d2d);
+    color: var(--vscode-button-secondaryForeground, #ccc);
+    border: 1px solid var(--vscode-button-border, #3c3f41);
+    padding: 5px 14px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--vscode-button-secondaryHoverBackground, #3a3a3a); }
+  .btn.primary {
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+    border-color: transparent;
+  }
+  .btn.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+  .btn.danger:hover { color: #f48771; border-color: #f48771; }
+  .btn.icon {
+    padding: 4px 8px;
+    font-size: 14px;
+    min-width: 28px;
+    text-align: center;
+  }
+  /* MODELS TABLE */
+  .models-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+  }
+  .models-table-wrap {
+    border: 1px solid #3c3f41;
+    border-radius: 3px;
+    overflow: hidden;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .models-table-wrap::-webkit-scrollbar { width: 6px; }
+  .models-table-wrap::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #2a2a2a; }
+  th {
+    padding: 5px 10px;
+    font-size: 12px;
+    color: #888;
+    text-align: left;
+    font-weight: 400;
+    border-bottom: 1px solid #3c3f41;
+  }
+  td { padding: 5px 10px; font-size: 13px; border-bottom: 1px solid #2a2a2a; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(255,255,255,0.04); }
+  tbody tr.selected { background: rgba(14, 99, 156, 0.25); }
+  tbody tr.selected:hover { background: rgba(14, 99, 156, 0.35); }
+  td.check-col { width: 40px; text-align: center; }
+  input[type="checkbox"] { cursor: pointer; accent-color: var(--vscode-button-background, #0e639c); }
+  .model-name-input {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 13px;
+    font-family: inherit;
+    width: 100%;
+    outline: none;
+    cursor: default;
+    padding: 0;
+  }
+  .model-name-input.editing {
+    background: var(--vscode-input-background, #252525);
+    border: 1px solid var(--vscode-focusBorder, #007fd4);
+    padding: 2px 4px;
+    border-radius: 2px;
+    cursor: text;
+  }
+  /* CHECKBOXES SECTION */
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .checkbox-row input[type="checkbox"] { width: 14px; height: 14px; }
+  .checkbox-row label { cursor: pointer; min-width: auto; color: #ccc; }
+  /* STATUS BAR */
+  .fetch-status {
+    font-size: 12px;
+    color: #888;
+    margin-left: 8px;
+    font-style: italic;
+  }
+  .fetch-status.ok { color: #89d185; }
+  .fetch-status.err { color: #f48771; }
+  /* DIVIDER */
+  hr { border: none; border-top: 1px solid #2e2e2e; margin: 20px 0; }
+  /* PROVIDER SELECT ROW */
+  #provider-select-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  #provider-select-row label { min-width: 120px; }
+  .empty-state { padding: 16px; color: #555; font-size: 12px; text-align: center; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>OmniPilot</h1>
+<h2>Tools › OmniPilot</h2>
+
+<div class="section">
+  <!-- PROVIDER SELECTOR ROW -->
+  <div id="provider-select-row">
+    <label>Select Provider:</label>
+    <select id="provider-selector">
+      <option value="">— No providers —</option>
+    </select>
+    <button class="btn" id="add-provider-btn">Add</button>
+    <button class="btn danger" id="remove-provider-btn">Remove</button>
+  </div>
+
+  <!-- PROVIDER FIELDS (hidden until a provider is selected) -->
+  <div id="provider-fields" style="display:none;">
+    <div class="row">
+      <label>Provider Name:</label>
+      <input type="text" id="provider-name" placeholder="e.g. Groq">
+    </div>
+    <div class="row">
+      <label>API Base URL:</label>
+      <input type="url" id="provider-url" placeholder="e.g. https://api.groq.com/openai/v1">
+    </div>
+    <div class="row">
+      <label>API Key:</label>
+      <input type="password" id="provider-key" placeholder="Your API key (stored in VS Code settings)">
+    </div>
+
+    <div class="row" style="align-items:flex-start; margin-top:4px;">
+      <label style="padding-top:6px;">Models:</label>
+      <div style="flex:1;">
+        <div class="models-toolbar">
+          <button class="btn icon" id="model-add-btn" title="Add model manually">+</button>
+          <button class="btn icon" id="model-remove-btn" title="Remove selected model">−</button>
+          <button class="btn icon" id="model-fetch-btn" title="Fetch models from API">↺</button>
+          <span class="fetch-status" id="fetch-status"></span>
+        </div>
+        <div class="models-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="check-col">Enabled</th>
+                <th>Model Name</th>
+              </tr>
+            </thead>
+            <tbody id="models-tbody">
+              <tr><td colspan="2" class="empty-state">No models — click ↺ to fetch or + to add manually</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr>
+
+<div class="section">
+  <div class="checkbox-row" id="inline-row">
+    <input type="checkbox" id="enable-inline" checked>
+    <label for="enable-inline">Enable Inline Completions (Ghost Text)</label>
+  </div>
+  <div class="checkbox-row" id="autoapprove-row">
+    <input type="checkbox" id="auto-approve">
+    <label for="auto-approve">Auto-approve file edits in Agent mode</label>
+  </div>
+</div>
+
+<hr>
+
+<div class="section">
+  <div class="row">
+    <label>MCP Server URL<br><span style="font-size:11px;color:#666;">(Optional)</span></label>
+    <input type="url" id="mcp-url" placeholder="http://localhost:3000">
+  </div>
+</div>
+
+<hr>
+
+<div style="display:flex;gap:10px;justify-content:flex-end;">
+  <button class="btn primary" id="save-btn">Save</button>
+  <button class="btn" id="close-btn">Close</button>
+</div>
+
+<script>
+const vscode = acquireVsCodeApi();
+
+let settings = {
+  providers: [],
+  activeProviderId: '',
+  activeModel: '',
+  enableInlineCompletions: true,
+  autoApproveAgentMode: false,
+  mcpServerUrl: ''
+};
+let selectedProviderIdx = -1;
+let selectedModelRow = -1;
+
+// ── DOM refs ──────────────────────────────────────────────────────────────
+const providerSelector = document.getElementById('provider-selector');
+const providerFields = document.getElementById('provider-fields');
+const providerName = document.getElementById('provider-name');
+const providerUrl = document.getElementById('provider-url');
+const providerKey = document.getElementById('provider-key');
+const modelsTbody = document.getElementById('models-tbody');
+const fetchStatus = document.getElementById('fetch-status');
+const enableInline = document.getElementById('enable-inline');
+const autoApprove = document.getElementById('auto-approve');
+const mcpUrl = document.getElementById('mcp-url');
+
+// ── Provider selector ─────────────────────────────────────────────────────
+function rebuildProviderSelector() {
+  providerSelector.innerHTML = '';
+  if (settings.providers.length === 0) {
+    providerSelector.innerHTML = '<option value="">— No providers —</option>';
+    return;
+  }
+  settings.providers.forEach((p, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = p.name || '(unnamed)';
+    providerSelector.appendChild(opt);
+  });
+  if (selectedProviderIdx >= 0 && selectedProviderIdx < settings.providers.length) {
+    providerSelector.value = String(selectedProviderIdx);
+  }
+}
+
+providerSelector.addEventListener('change', () => {
+  const idx = parseInt(providerSelector.value, 10);
+  if (isNaN(idx)) { selectedProviderIdx = -1; providerFields.style.display = 'none'; return; }
+  selectedProviderIdx = idx;
+  loadProviderFields(idx);
+});
+
+function loadProviderFields(idx) {
+  const p = settings.providers[idx];
+  if (!p) { providerFields.style.display = 'none'; return; }
+  providerFields.style.display = '';
+  providerName.value = p.name || '';
+  providerUrl.value = p.baseUrl || '';
+  providerKey.value = p.apiKey || '';
+  fetchStatus.textContent = '';
+  fetchStatus.className = 'fetch-status';
+  renderModelsTable(p.models || []);
+}
+
+// Sync fields back to provider object on change
+providerName.addEventListener('input', () => {
+  if (selectedProviderIdx < 0) return;
+  settings.providers[selectedProviderIdx].name = providerName.value;
+  rebuildProviderSelector();
+  providerSelector.value = String(selectedProviderIdx);
+});
+providerUrl.addEventListener('input', () => {
+  if (selectedProviderIdx < 0) return;
+  settings.providers[selectedProviderIdx].baseUrl = providerUrl.value;
+});
+providerKey.addEventListener('input', () => {
+  if (selectedProviderIdx < 0) return;
+  settings.providers[selectedProviderIdx].apiKey = providerKey.value;
+});
+
+// ── Add / Remove provider ─────────────────────────────────────────────────
+document.getElementById('add-provider-btn').addEventListener('click', () => {
+  const newProvider = {
+    id: 'provider_' + Date.now(),
+    name: 'New Provider',
+    baseUrl: '',
+    apiKey: '',
+    models: [],
+    selectedModel: ''
+  };
+  settings.providers.push(newProvider);
+  selectedProviderIdx = settings.providers.length - 1;
+  rebuildProviderSelector();
+  providerSelector.value = String(selectedProviderIdx);
+  loadProviderFields(selectedProviderIdx);
+});
+
+document.getElementById('remove-provider-btn').addEventListener('click', () => {
+  if (selectedProviderIdx < 0) return;
+  settings.providers.splice(selectedProviderIdx, 1);
+  selectedProviderIdx = Math.min(selectedProviderIdx, settings.providers.length - 1);
+  if (settings.providers.length === 0) { selectedProviderIdx = -1; }
+  rebuildProviderSelector();
+  if (selectedProviderIdx >= 0) {
+    providerSelector.value = String(selectedProviderIdx);
+    loadProviderFields(selectedProviderIdx);
+  } else {
+    providerFields.style.display = 'none';
+  }
+});
+
+// ── Models table ──────────────────────────────────────────────────────────
+function renderModelsTable(models) {
+  modelsTbody.innerHTML = '';
+  selectedModelRow = -1;
+  if (!models || models.length === 0) {
+    modelsTbody.innerHTML = '<tr><td colspan="2" class="empty-state">No models — click ↺ to fetch or + to add manually</td></tr>';
+    return;
+  }
+  models.forEach((m, i) => {
+    const tr = document.createElement('tr');
+    const isEnabled = !settings.providers[selectedProviderIdx]?.disabledModels?.includes(m);
+    tr.innerHTML = `
+      <td class="check-col"><input type="checkbox" ${isEnabled ? 'checked' : ''} data-idx="${i}"></td>
+      <td><input class="model-name-input" type="text" value="${escHtml(m)}" data-idx="${i}" readonly></td>
+    `;
+    tr.addEventListener('click', () => {
+      modelsTbody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
+      tr.classList.add('selected');
+      selectedModelRow = i;
+    });
+    // Checkbox toggle
+    tr.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
+      const p = settings.providers[selectedProviderIdx];
+      if (!p) return;
+      p.disabledModels = p.disabledModels || [];
+      if (e.target.checked) {
+        p.disabledModels = p.disabledModels.filter(dm => dm !== m);
+      } else {
+        if (!p.disabledModels.includes(m)) p.disabledModels.push(m);
+      }
+      e.stopPropagation();
+    });
+    // Double-click to edit model name
+    const nameInput = tr.querySelector('.model-name-input');
+    nameInput.addEventListener('dblclick', () => {
+      nameInput.removeAttribute('readonly');
+      nameInput.classList.add('editing');
+      nameInput.focus();
+    });
+    nameInput.addEventListener('blur', () => {
+      nameInput.setAttribute('readonly', '');
+      nameInput.classList.remove('editing');
+      const p = settings.providers[selectedProviderIdx];
+      if (p) p.models[i] = nameInput.value;
+    });
+    modelsTbody.appendChild(tr);
+  });
+}
+
+// Add model manually
+document.getElementById('model-add-btn').addEventListener('click', () => {
+  if (selectedProviderIdx < 0) return;
+  const p = settings.providers[selectedProviderIdx];
+  if (!p.models) p.models = [];
+  p.models.push('new-model');
+  renderModelsTable(p.models);
+  // Select last row
+  const rows = modelsTbody.querySelectorAll('tr');
+  if (rows.length > 0) {
+    const lastRow = rows[rows.length - 1];
+    lastRow.classList.add('selected');
+    selectedModelRow = p.models.length - 1;
+    const nameInput = lastRow.querySelector('.model-name-input');
+    nameInput.removeAttribute('readonly');
+    nameInput.classList.add('editing');
+    nameInput.select();
+  }
+});
+
+// Remove model
+document.getElementById('model-remove-btn').addEventListener('click', () => {
+  if (selectedProviderIdx < 0 || selectedModelRow < 0) return;
+  const p = settings.providers[selectedProviderIdx];
+  p.models.splice(selectedModelRow, 1);
+  selectedModelRow = -1;
+  renderModelsTable(p.models);
+});
+
+// Fetch models from API
+document.getElementById('model-fetch-btn').addEventListener('click', () => {
+  if (selectedProviderIdx < 0) return;
+  const p = settings.providers[selectedProviderIdx];
+  if (!p.baseUrl) {
+    fetchStatus.textContent = 'Error: API Base URL is required';
+    fetchStatus.className = 'fetch-status err';
+    return;
+  }
+  fetchStatus.textContent = 'Fetching…';
+  fetchStatus.className = 'fetch-status';
+  vscode.postMessage({
+    type: 'fetchModels',
+    providerId: p.id,
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey
+  });
+});
+
+// ── Global checkboxes ─────────────────────────────────────────────────────
+enableInline.addEventListener('change', () => { settings.enableInlineCompletions = enableInline.checked; });
+autoApprove.addEventListener('change', () => { settings.autoApproveAgentMode = autoApprove.checked; });
+mcpUrl.addEventListener('input', () => { settings.mcpServerUrl = mcpUrl.value; });
+
+// ── Save ──────────────────────────────────────────────────────────────────
+document.getElementById('save-btn').addEventListener('click', () => {
+  vscode.postMessage({ type: 'saveSettings', settings });
+});
+document.getElementById('close-btn').addEventListener('click', () => {
+  vscode.postMessage({ type: 'closeSettings' });
+});
+
+// ── Receive from extension ────────────────────────────────────────────────
+window.addEventListener('message', (event) => {
+  const msg = event.data;
+  if (msg.type === 'settingsInit') {
+    settings = {
+      providers: msg.providers || [],
+      activeProviderId: msg.activeProviderId || '',
+      activeModel: msg.activeModel || '',
+      enableInlineCompletions: msg.enableInlineCompletions !== false,
+      autoApproveAgentMode: !!msg.autoApproveAgentMode,
+      mcpServerUrl: msg.mcpServerUrl || ''
+    };
+    enableInline.checked = settings.enableInlineCompletions;
+    autoApprove.checked = settings.autoApproveAgentMode;
+    mcpUrl.value = settings.mcpServerUrl;
+    rebuildProviderSelector();
+    if (settings.providers.length > 0) {
+      selectedProviderIdx = 0;
+      providerSelector.value = '0';
+      loadProviderFields(0);
+    }
+  }
+  if (msg.type === 'modelsResult') {
+    const p = settings.providers.find(p => p.id === msg.providerId);
+    if (p) {
+      p.models = msg.models;
+      if (settings.providers[selectedProviderIdx]?.id === msg.providerId) {
+        renderModelsTable(p.models);
+        fetchStatus.textContent = `✓ Fetched ${msg.models.length} models`;
+        fetchStatus.className = 'fetch-status ok';
+      }
+    }
+  }
+  if (msg.type === 'modelsError') {
+    fetchStatus.textContent = 'Error: ' + msg.error;
+    fetchStatus.className = 'fetch-status err';
+  }
+});
+
+function escHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Signal ready
+vscode.postMessage({ type: 'settingsReady' });
+</script>
+</body>
+</html>

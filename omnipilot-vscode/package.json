@@ -56,38 +56,35 @@
         "omnipilot.providers": {
           "type": "array",
           "default": [],
-          "description": "List of AI providers. Each item: { id, name, baseUrl, apiKey, models }",
+          "description": "Provider configurations. Managed via OmniPilot: Open Settings command.",
           "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "baseUrl": {
-                "type": "string"
-              },
-              "apiKey": {
-                "type": "string"
-              },
-              "models": {
-                "type": "string",
-                "description": "Comma-separated model names, or leave blank to auto-fetch"
-              }
-            }
+            "type": "object"
           }
         },
         "omnipilot.activeProviderId": {
           "type": "string",
           "default": "",
-          "description": "The ID of the currently active provider"
+          "description": "Active provider ID"
         },
         "omnipilot.activeModel": {
           "type": "string",
           "default": "",
-          "description": "The currently selected model name"
+          "description": "Active model name"
+        },
+        "omnipilot.enableInlineCompletions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline code completions (ghost text) as you type"
+        },
+        "omnipilot.autoApproveAgentMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically approve file edits in Agent (Auto) mode without prompting"
+        },
+        "omnipilot.mcpServerUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional MCP server URL for tool integrations"
         }
       }
     }

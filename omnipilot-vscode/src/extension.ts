@@ -6,6 +6,7 @@ import { OmniPilotRpcClient } from './rpc-client';
 let client: OmniPilotRpcClient | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let chatPanel: vscode.WebviewView | undefined;
+let settingsPanel: vscode.WebviewPanel | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   // 1. Status bar
@@ -26,14 +27,14 @@ export function activate(context: vscode.ExtensionContext) {
       chatPanel?.webview.postMessage({ type: 'newChat' });
     }),
     vscode.commands.registerCommand('omnipilot.openSettings', () => {
-      vscode.commands.executeCommand('workbench.action.openSettings', 'omnipilot');
+      openSettingsPanel(context);
     })
   );
 
-  // 4. Webview provider
-  const provider = new OmniPilotViewProvider(context.extensionUri);
+  // 4. Chat Webview provider
+  const chatProvider = new OmniPilotChatProvider(context.extensionUri);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('omnipilot.chatView', provider, {
+    vscode.window.registerWebviewViewProvider('omnipilot.chatView', chatProvider, {
       webviewOptions: { retainContextWhenHidden: true }
     })
   );
@@ -57,7 +58,7 @@ export function activate(context: vscode.ExtensionContext) {
   client.onNotification('chat/token', (params: { sessionId: string; token: string }) => {
     chatPanel?.webview.postMessage({ type: 'token', token: params.token });
   });
-  client.onNotification('chat/complete', (params: { sessionId: string }) => {
+  client.onNotification('chat/complete', (_params: { sessionId: string }) => {
     chatPanel?.webview.postMessage({ type: 'complete' });
   });
   client.onNotification('chat/error', (params: { sessionId: string; message: string }) => {
@@ -66,14 +67,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   updateStatusBar();
 
-  context.subscriptions.push({
-    dispose: () => { client?.stop(); }
-  });
+  context.subscriptions.push({ dispose: () => { client?.stop(); } });
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
 function getProviders(): any[] {
-  const config = vscode.workspace.getConfiguration('omnipilot');
-  return config.get<any[]>('providers') ?? [];
+  return vscode.workspace.getConfiguration('omnipilot').get<any[]>('providers') ?? [];
 }
 
 function pushProvidersToServer(): void {
@@ -82,8 +82,8 @@ function pushProvidersToServer(): void {
 }
 
 function updateStatusBar(): void {
-  const providers = getProviders();
   const config = vscode.workspace.getConfiguration('omnipilot');
+  const providers = getProviders();
   const activeId = config.get<string>('activeProviderId') ?? '';
   const activeModel = config.get<string>('activeModel') ?? '';
   const provider = providers.find(p => p.id === activeId);
@@ -96,7 +96,78 @@ function updateStatusBar(): void {
   }
 }
 
-class OmniPilotViewProvider implements vscode.WebviewViewProvider {
+function openSettingsPanel(context: vscode.ExtensionContext): void {
+  if (settingsPanel) {
+    settingsPanel.reveal(vscode.ViewColumn.One);
+    return;
+  }
+  settingsPanel = vscode.window.createWebviewPanel(
+    'omnipilot.settings',
+    'OmniPilot Settings',
+    vscode.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [context.extensionUri] }
+  );
+  const htmlPath = path.join(context.extensionUri.fsPath, 'resources', 'settings-webview.html');
+  settingsPanel.webview.html = fs.readFileSync(htmlPath, 'utf8');
+
+  settingsPanel.webview.onDidReceiveMessage(async (msg: any) => {
+    const config = vscode.workspace.getConfiguration('omnipilot');
+    switch (msg.type) {
+      case 'settingsReady': {
+        settingsPanel?.webview.postMessage({
+          type: 'settingsInit',
+          providers: getProviders(),
+          activeProviderId: config.get<string>('activeProviderId') ?? '',
+          activeModel: config.get<string>('activeModel') ?? '',
+          enableInlineCompletions: config.get<boolean>('enableInlineCompletions') ?? true,
+          autoApproveAgentMode: config.get<boolean>('autoApproveAgentMode') ?? false,
+          mcpServerUrl: config.get<string>('mcpServerUrl') ?? ''
+        });
+        break;
+      }
+      case 'saveSettings': {
+        const s = msg.settings;
+        await config.update('providers', s.providers, vscode.ConfigurationTarget.Global);
+        if (s.activeProviderId) {
+          await config.update('activeProviderId', s.activeProviderId, vscode.ConfigurationTarget.Global);
+        }
+        if (s.activeModel) {
+          await config.update('activeModel', s.activeModel, vscode.ConfigurationTarget.Global);
+        }
+        await config.update('enableInlineCompletions', s.enableInlineCompletions, vscode.ConfigurationTarget.Global);
+        await config.update('autoApproveAgentMode', s.autoApproveAgentMode, vscode.ConfigurationTarget.Global);
+        await config.update('mcpServerUrl', s.mcpServerUrl, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage('OmniPilot settings saved.');
+        pushProvidersToServer();
+        updateStatusBar();
+        break;
+      }
+      case 'fetchModels': {
+        try {
+          // fetchModels returns string[] directly (not { models: string[] })
+          const models = await client?.sendRequest<string[]>('models/fetch', {
+            baseUrl: msg.baseUrl,
+            apiKey: msg.apiKey
+          }) ?? [];
+          settingsPanel?.webview.postMessage({ type: 'modelsResult', providerId: msg.providerId, models });
+        } catch (e: any) {
+          settingsPanel?.webview.postMessage({ type: 'modelsError', providerId: msg.providerId, error: e?.message ?? String(e) });
+        }
+        break;
+      }
+      case 'closeSettings': {
+        settingsPanel?.dispose();
+        break;
+      }
+    }
+  });
+
+  settingsPanel.onDidDispose(() => { settingsPanel = undefined; });
+}
+
+// ── Chat Webview Provider ─────────────────────────────────────────────────
+
+class OmniPilotChatProvider implements vscode.WebviewViewProvider {
   constructor(private readonly extensionUri: vscode.Uri) {}
 
   resolveWebviewView(
@@ -110,11 +181,10 @@ class OmniPilotViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.extensionUri]
     };
 
-    // Load HTML
-    const htmlPath = path.join(this.extensionUri.fsPath, 'src', 'chat-webview.html');
+    // Load HTML from resources/ (included in VSIX)
+    const htmlPath = path.join(this.extensionUri.fsPath, 'resources', 'chat-webview.html');
     webviewView.webview.html = fs.readFileSync(htmlPath, 'utf8');
 
-    // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(async (msg: any) => {
       switch (msg.type) {
         case 'ready': {
@@ -143,7 +213,6 @@ class OmniPilotViewProvider implements vscode.WebviewViewProvider {
           } catch (e: any) {
             webviewView.webview.postMessage({ type: 'error', message: e?.message ?? String(e) });
           }
-          // Save active model/provider to settings
           const config = vscode.workspace.getConfiguration('omnipilot');
           await config.update('activeProviderId', msg.providerId, vscode.ConfigurationTarget.Global);
           await config.update('activeModel', msg.model, vscode.ConfigurationTarget.Global);
@@ -154,24 +223,22 @@ class OmniPilotViewProvider implements vscode.WebviewViewProvider {
           client?.sendRequest('chat/cancel').catch(() => {});
           break;
         }
-        case 'newChat': {
-          // Nothing to do server-side for new chat
-          break;
-        }
+        case 'newChat': { break; }
         case 'fetchModels': {
           const providers = getProviders();
           const provider = providers.find(p => p.id === msg.providerId);
           if (!provider) break;
           try {
-            const result = await client?.sendRequest<{ models: string[] }>('models/fetch', {
+            // fetchModels returns string[] directly
+            const models = await client?.sendRequest<string[]>('models/fetch', {
               baseUrl: provider.baseUrl,
               apiKey: provider.apiKey
-            });
-            const models: string[] = result?.models ?? (provider.models ? provider.models.split(',').map((m: string) => m.trim()) : []);
-            webviewView.webview.postMessage({ type: 'models', providerId: msg.providerId, models });
+            }) ?? [];
+            // Also check provider.models array as fallback
+            const finalModels = models.length > 0 ? models : (provider.models ?? []);
+            webviewView.webview.postMessage({ type: 'models', providerId: msg.providerId, models: finalModels });
           } catch {
-            // Fallback to configured models string
-            const fallback = provider.models ? provider.models.split(',').map((m: string) => m.trim()) : [];
+            const fallback = provider.models ?? [];
             webviewView.webview.postMessage({ type: 'models', providerId: msg.providerId, models: fallback });
           }
           break;
@@ -197,7 +264,7 @@ class OmniPilotViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'openSettings': {
-          vscode.commands.executeCommand('workbench.action.openSettings', 'omnipilot');
+          vscode.commands.executeCommand('omnipilot.openSettings');
           break;
         }
       }
