@@ -71,12 +71,25 @@ server.registerHandler(RPC_METHODS.CHAT_SEND, async (params: {
   sessionId: string;
   messages: any[];
   providerId: string;
+  baseUrl?: string;
+  apiKey?: string;
   model: string;
   mode: any;
   osInfo: string;
   editorContext?: any;
 }) => {
-  const provider = providerStore.getProvider(params.providerId) || providerStore.getActiveProvider();
+  let provider = providerStore.getProvider(params.providerId) || providerStore.getActiveProvider();
+
+  if ((!provider || params.baseUrl) && params.baseUrl) {
+    provider = {
+      id: params.providerId || 'active',
+      name: params.providerId || 'Active Provider',
+      baseUrl: params.baseUrl,
+      apiKey: params.apiKey || (provider?.apiKey ?? ''),
+      models: params.model
+    };
+  }
+
   if (!provider) {
     throw new Error(`Provider not configured for ID: ${params.providerId}`);
   }

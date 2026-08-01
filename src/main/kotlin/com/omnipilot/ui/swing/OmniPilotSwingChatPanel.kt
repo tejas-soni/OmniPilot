@@ -679,6 +679,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val settings = OmniPilotSettingsState.instance
         val provider = if (selectedProviderIndex >= 0 && selectedProviderIndex < settings.providers.size) settings.providers[selectedProviderIndex] else null
         val providerId = provider?.id ?: ""
+        val baseUrl = provider?.baseUrl ?: ""
+        val apiKey = com.omnipilot.settings.CredentialManager.getApiKey(providerId) ?: ""
         val selectedModel = modelDropdown.getSelectedValue()
         val modeStr = when (modeDropdown.getSelectedIndex()) {
             1 -> "AGENT"
@@ -704,6 +706,8 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
                 "sessionId": "${currentSessionId}",
                 "messages": [{"role": "user", "content": ${quote(text)}}],
                 "providerId": "${quote(providerId)}",
+                "baseUrl": "${quote(baseUrl)}",
+                "apiKey": "${quote(apiKey)}",
                 "model": "${quote(selectedModel)}",
                 "mode": "${modeStr}",
                 "osInfo": "${quote(osInfo)}",
@@ -1000,7 +1004,7 @@ class CodeBlockPanel(private val project: Project, private val codeStr: String) 
 
 // --- CUSTOM DROPDOWN COMPONENT MATCHING chat.html 100% ---
 
-class CustomSelectDropdown(initialValue: String) : JLabel(initialValue) {
+class CustomSelectDropdown(initialValue: String) : JLabel() {
     private val items = mutableListOf<String>()
     private var selectedIndex = 0
     private var onSelectCallback: (() -> Unit)? = null
@@ -1009,8 +1013,9 @@ class CustomSelectDropdown(initialValue: String) : JLabel(initialValue) {
     init {
         font = Font("Inter", Font.PLAIN, 13)
         foreground = Color(0xa9, 0xb7, 0xc6)
-        border = EmptyBorder(4, 8, 4, 20)
+        border = EmptyBorder(4, 8, 4, 18)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        setDisplayText(initialValue)
 
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { isHovered = true; foreground = Color(0xd4, 0xd4, 0xd4); repaint() }
@@ -1019,11 +1024,16 @@ class CustomSelectDropdown(initialValue: String) : JLabel(initialValue) {
         })
     }
 
+    private fun setDisplayText(fullStr: String) {
+        toolTipText = fullStr
+        text = if (fullStr.length > 14) fullStr.substring(0, 12) + "..." else fullStr
+    }
+
     fun setItems(newItems: List<String>) {
         items.clear()
         items.addAll(newItems)
         selectedIndex = 0
-        text = if (items.isNotEmpty()) items[0] else ""
+        setDisplayText(if (items.isNotEmpty()) items[0] else "")
         repaint()
     }
 
@@ -1048,7 +1058,7 @@ class CustomSelectDropdown(initialValue: String) : JLabel(initialValue) {
                 border = EmptyBorder(6, 12, 6, 12)
                 addActionListener {
                     selectedIndex = idx
-                    this@CustomSelectDropdown.text = itemStr
+                    this@CustomSelectDropdown.setDisplayText(itemStr)
                     onSelectCallback?.invoke()
                 }
             }
@@ -1204,9 +1214,9 @@ class CustomSendIconButton : JLabel() {
 class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
     init {
         isOpaque = false
-        border = EmptyBorder(10, 16, 10, 16)
+        border = EmptyBorder(6, 12, 6, 12)
         val cleanHtml = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:14px; line-height:1.5;'>$cleanHtml</body></html>")
+        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:13px; line-height:1.5;'>$cleanHtml</body></html>")
         add(lbl, BorderLayout.CENTER)
     }
 
@@ -1215,9 +1225,9 @@ class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
         g2.color = Color(0x2b, 0x2d, 0x30)
-        g2.fillRoundRect(0, 0, width - 1, height - 1, 16, 16)
+        g2.fillRoundRect(0, 0, width - 1, height - 1, 10, 10)
         g2.color = Color(0x3c, 0x3f, 0x41)
-        g2.drawRoundRect(0, 0, width - 1, height - 1, 16, 16)
+        g2.drawRoundRect(0, 0, width - 1, height - 1, 10, 10)
         g2.dispose()
         super.paintComponent(g)
     }

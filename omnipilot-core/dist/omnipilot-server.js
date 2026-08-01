@@ -207,8 +207,8 @@ var RpcServer = class {
 };
 
 // src/history/manager.ts
-var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
+var fs = __toESM(require("fs"), 1);
+var path = __toESM(require("path"), 1);
 var HistoryManager = class {
   storageDir;
   filePath;
@@ -525,7 +525,16 @@ server.registerHandler(RPC_METHODS.CHAT_CANCEL, () => {
   return { status: "ok" };
 });
 server.registerHandler(RPC_METHODS.CHAT_SEND, async (params) => {
-  const provider = providerStore.getProvider(params.providerId) || providerStore.getActiveProvider();
+  let provider = providerStore.getProvider(params.providerId) || providerStore.getActiveProvider();
+  if ((!provider || params.baseUrl) && params.baseUrl) {
+    provider = {
+      id: params.providerId || "active",
+      name: params.providerId || "Active Provider",
+      baseUrl: params.baseUrl,
+      apiKey: params.apiKey || (provider?.apiKey ?? ""),
+      models: params.model
+    };
+  }
   if (!provider) {
     throw new Error(`Provider not configured for ID: ${params.providerId}`);
   }
