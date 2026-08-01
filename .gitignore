@@ -37,3 +37,11 @@ scratch/
 *.bak
 *.swp
 *~.nib
+
+# Node / JS
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+

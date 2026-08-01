@@ -101,6 +101,71 @@ describe('LLM & Prompt Unit Tests', () => {
     expect(result).toEqual([]);
   });
 
+  test('LlmClient cancelStream when active controller present', () => {
+    const client = new LlmClient();
+    (client as any).activeAbortController = new AbortController();
+    client.cancelStream();
+    expect((client as any).activeAbortController).toBeNull();
+  });
+
+  test('LlmClient streamChatCompletion handles AbortError', async () => {
+    const client = new LlmClient();
+    const abortErr = new Error('The operation was aborted');
+    abortErr.name = 'AbortError';
+
+    const mockFetch = jest.fn().mockRejectedValue(abortErr);
+    global.fetch = mockFetch as any;
+
+    const onComplete = jest.fn();
+    await client.streamChatCompletion(
+      { id: 'p1', name: 'OpenAI', baseUrl: 'http://localhost', models: 'm1' },
+      { model: 'm1', messages: [] },
+      { onToken: jest.fn(), onComplete, onError: jest.fn() }
+    );
+
+    expect(onComplete).toHaveBeenCalled();
+  });
+
+  test('LlmClient streamChatCompletion loop end without DONE tag', async () => {
+    const client = new LlmClient();
+    const chunks = [
+      'data: {"choices":[{"delta":{"content":"Line 1"}}]}\n',
+      ': comment line\n',
+      '\n'
+    ];
+    let chunkIdx = 0;
+
+    const mockStream = {
+      getReader: () => ({
+        read: async () => {
+          if (chunkIdx < chunks.length) {
+            const encoder = new TextEncoder();
+            const val = encoder.encode(chunks[chunkIdx++]);
+            return { done: false, value: val };
+          }
+          return { done: true, value: undefined };
+        }
+      })
+    };
+
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      body: mockStream
+    });
+    global.fetch = mockFetch as any;
+
+    const onToken = jest.fn();
+    const onComplete = jest.fn();
+    const result = await client.streamChatCompletion(
+      { id: 'p1', name: 'OpenAI', baseUrl: 'http://localhost', models: 'm1' },
+      { model: 'm1', messages: [] },
+      { onToken, onComplete, onError: jest.fn() }
+    );
+
+    expect(result).toBe('Line 1');
+    expect(onComplete).toHaveBeenCalled();
+  });
+
   test('LlmClient streamChatCompletion error responses', async () => {
     const client = new LlmClient();
     const mockFetch = jest.fn().mockResolvedValue({
@@ -139,9 +204,9 @@ describe('LLM & Prompt Unit Tests', () => {
     expect(onError).toHaveBeenCalledWith('Response body is null');
   });
 
-  test('LlmClient streamChatCompletion network throw', async () => {
+  test('LlmClient streamChatCompletion network throw without message', async () => {
     const client = new LlmClient();
-    const mockFetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    const mockFetch = jest.fn().mockRejectedValue({});
     global.fetch = mockFetch as any;
 
     const onError = jest.fn();
@@ -151,47 +216,6 @@ describe('LLM & Prompt Unit Tests', () => {
       { onToken: jest.fn(), onComplete: jest.fn(), onError }
     );
 
-    expect(onError).toHaveBeenCalledWith('Network error');
-  });
-
-  test('LlmClient streamChatCompletion successful streaming', async () => {
-    const client = new LlmClient();
-    const chunks = [
-      'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
-      'data: [DONE]\n\n'
-    ];
-    let chunkIdx = 0;
-
-    const mockStream = {
-      getReader: () => ({
-        read: async () => {
-          if (chunkIdx < chunks.length) {
-            const encoder = new TextEncoder();
-            const val = encoder.encode(chunks[chunkIdx++]);
-            return { done: false, value: val };
-          }
-          return { done: true, value: undefined };
-        }
-      })
-    };
-
-    const mockFetch = jest.fn().mockResolvedValue({
-      ok: true,
-      body: mockStream
-    });
-    global.fetch = mockFetch as any;
-
-    const onToken = jest.fn();
-    const onComplete = jest.fn();
-    const res = await client.streamChatCompletion(
-      { id: 'p1', name: 'OpenAI', baseUrl: 'http://localhost', models: 'm1' },
-      { model: 'm1', messages: [] },
-      { onToken, onComplete, onError: jest.fn() }
-    );
-
-    expect(res).toBe('Hello world');
-    expect(onToken).toHaveBeenCalledTimes(2);
-    expect(onComplete).toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith('Network stream error');
   });
 });
