@@ -69,8 +69,6 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
     private val historyOverlay = JPanel(BorderLayout())
     private val historyListContainer = JPanel()
     private var isHistoryOpen = false
-    private var historyOverlayX = Int.MIN_VALUE
-    private var historyAnimationTimer: Timer? = null
 
     // Permission Glass Pane
     private val permissionOverlay = JPanel(BorderLayout())
@@ -142,8 +140,9 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         isHistoryOpen = open
         if (isHistoryOpen) {
             fetchHistoryFromStore()
+            layeredPane.moveToFront(historyOverlay)
         }
-        updateHistoryOverlayBounds(animated = true)
+        updateHistoryOverlayBounds()
     }
 
     private fun toggleHistoryDrawer() {
@@ -156,7 +155,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         if (w <= 0 || h <= 0) return
 
         contentHostPanel.setBounds(0, 0, w, h)
-        updateHistoryOverlayBounds(animated = false)
+        updateHistoryOverlayBounds()
 
         if (permissionOverlay.isVisible) {
             permissionOverlay.setBounds(20, 20, w - 40, 180)
@@ -166,7 +165,7 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         layeredPane.repaint()
     }
 
-    private fun updateHistoryOverlayBounds(animated: Boolean) {
+    private fun updateHistoryOverlayBounds() {
         val w = if (layeredPane.width > 0) layeredPane.width else width
         val h = if (layeredPane.height > 0) layeredPane.height else height
         if (w <= 0 || h <= 0) return
@@ -174,47 +173,15 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val sidebarW = (w * 0.8).toInt().coerceIn(240, 320)
         val openX = w - sidebarW
         val closedX = w
-        val targetX = if (isHistoryOpen) openX else closedX
-
-        if (historyOverlayX == Int.MIN_VALUE) {
-            historyOverlayX = targetX
+        if (isHistoryOpen) {
+            historyOverlay.setBounds(openX, 0, sidebarW, h)
+            historyOverlay.isVisible = true
         } else {
-            historyOverlayX = historyOverlayX.coerceIn(openX, closedX)
+            historyOverlay.setBounds(closedX, 0, 0, h)
+            historyOverlay.isVisible = false
         }
-
-        fun applyBounds(x: Int) {
-            historyOverlayX = x
-            historyOverlay.setBounds(x, 0, sidebarW, h)
-            historyOverlay.revalidate()
-            historyOverlay.repaint()
-        }
-
-        if (!animated) {
-            historyAnimationTimer?.stop()
-            applyBounds(targetX)
-            historyOverlay.isVisible = isHistoryOpen
-            return
-        }
-
-        historyAnimationTimer?.stop()
-        historyOverlay.isVisible = true
-
-        historyAnimationTimer = Timer(12, null).apply {
-            addActionListener {
-                val distance = targetX - historyOverlayX
-                if (kotlin.math.abs(distance) <= 8) {
-                    applyBounds(targetX)
-                    stop()
-                    if (!isHistoryOpen) {
-                        historyOverlay.isVisible = false
-                    }
-                } else {
-                    val step = maxOf(8, kotlin.math.abs(distance) / 4)
-                    applyBounds(historyOverlayX + step * Integer.signum(distance))
-                }
-            }
-            start()
-        }
+        historyOverlay.revalidate()
+        historyOverlay.repaint()
     }
 
     // --- TOP HEADER ---
@@ -1007,16 +974,18 @@ class AssistantMessagePanel(private val project: Project, initialText: String) :
             background = Color(0x1e, 0x1e, 0x1e)
             border = null
             alignmentX = Component.LEFT_ALIGNMENT
+            putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+            font = Font("Inter", Font.PLAIN, 14)
         }
         val html = markdownSnippet
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace(Regex("\\*\\*([^*]+)\\*\\*"), "<b>$1</b>")
-            .replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:12px;'>$1</code>")
+            .replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:13px;'>$1</code>")
             .replace("\n", "<br>")
 
-        pane.text = "<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:13px; line-height:1.4;'>$html</body></html>"
+        pane.text = "<html><body style='color:#d4d4d4; line-height:1.35;'>$html</body></html>"
         return pane
     }
 }
@@ -1268,17 +1237,20 @@ class SvgIconButton(
         toolTipText = tooltip
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         preferredSize = Dimension(24, 24)
+        minimumSize = preferredSize
+        maximumSize = preferredSize
         isBorderPainted = false
         isContentAreaFilled = false
         isFocusPainted = false
+        isFocusable = false
         isOpaque = false
         border = EmptyBorder(0, 0, 0, 0)
 
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { isHovered = true; repaint() }
             override fun mouseExited(e: MouseEvent) { isHovered = false; repaint() }
+            override fun mouseClicked(e: MouseEvent) { onClick() }
         })
-        addActionListener { onClick() }
     }
 
     override fun paintComponent(g: Graphics) {
@@ -1384,7 +1356,9 @@ class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
         isOpaque = false
         border = EmptyBorder(2, 8, 2, 8)
         val cleanHtml = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:13px; line-height:1.4;'>$cleanHtml</body></html>")
+        val lbl = JLabel("<html><body style='color:#d4d4d4; line-height:1.35;'>$cleanHtml</body></html>").apply {
+            font = Font("Inter", Font.PLAIN, 14)
+        }
         add(lbl, BorderLayout.CENTER)
     }
 
