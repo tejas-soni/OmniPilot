@@ -131,14 +131,23 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         setupServerListeners()
     }
 
+    private fun toggleHistoryDrawer() {
+        isHistoryOpen = !isHistoryOpen
+        historyOverlay.isVisible = isHistoryOpen
+        if (isHistoryOpen) {
+            fetchHistoryFromStore()
+        }
+        updateLayeredBounds()
+    }
+
     private fun updateLayeredBounds() {
-        val w = layeredPane.width
-        val h = layeredPane.height
+        val w = if (layeredPane.width > 0) layeredPane.width else width
+        val h = if (layeredPane.height > 0) layeredPane.height else height
         if (w <= 0 || h <= 0) return
 
         mainContentPanel.setBounds(0, 0, w, h)
 
-        val sidebarW = 300
+        val sidebarW = (w * 0.8).toInt().coerceIn(240, 320)
         val targetX = if (isHistoryOpen) w - sidebarW else w
         historyOverlay.setBounds(targetX, 0, sidebarW, h)
 
@@ -341,33 +350,28 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         inputContainer.add(inputTextArea, BorderLayout.CENTER)
 
         // TOOLBAR INSIDE INPUT CONTAINER MATCHING chat.html FLEXBOX
-        val toolbar = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
+        val toolbar = JPanel(BorderLayout()).apply {
             isOpaque = false
-            border = EmptyBorder(6, 12, 10, 12)
+            border = EmptyBorder(6, 10, 8, 10)
         }
 
+        val leftGroup = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply { isOpaque = false }
         val attachBtn = SvgIconButton(SvgType.PLUS, "Attach Context") {
             // Attach context
         }
-        toolbar.add(attachBtn)
-        toolbar.add(Box.createRigidArea(Dimension(6, 0)))
+        leftGroup.add(attachBtn)
 
         providerDropdown.setOnSelect { onProviderSelected() }
-        toolbar.add(providerDropdown)
+        leftGroup.add(providerDropdown)
 
-        toolbar.add(Box.createHorizontalGlue())
+        leftGroup.add(modelDropdown)
 
-        modelDropdown.maximumSize = Dimension(Int.MAX_VALUE, 24)
-        toolbar.add(modelDropdown)
+        leftGroup.add(modeDropdown)
 
-        toolbar.add(Box.createHorizontalGlue())
-
-        toolbar.add(modeDropdown)
-        toolbar.add(Box.createRigidArea(Dimension(6, 0)))
+        toolbar.add(leftGroup, BorderLayout.WEST)
 
         sendBtn.setOnClickListener { handleSendOrStop() }
-        toolbar.add(sendBtn)
+        toolbar.add(sendBtn, BorderLayout.EAST)
 
         inputContainer.add(toolbar, BorderLayout.SOUTH)
 
@@ -428,14 +432,6 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         historyScroll.border = null
         historyScroll.viewport.background = Color(0x1e, 0x1e, 0x1e)
         historyOverlay.add(historyScroll, BorderLayout.CENTER)
-    }
-
-    private fun toggleHistoryDrawer() {
-        isHistoryOpen = !isHistoryOpen
-        if (isHistoryOpen) {
-            fetchHistoryFromStore()
-        }
-        updateLayeredBounds()
     }
 
     private fun fetchHistoryFromStore() {
@@ -786,11 +782,10 @@ class OmniPilotSwingChatPanel(private val project: Project) : JPanel(BorderLayou
         val card = UserBubbleCard(text)
         val row = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
             isOpaque = false
-            border = EmptyBorder(0, 50, 16, 0)
+            border = EmptyBorder(0, 0, 10, 0)
             alignmentX = Component.RIGHT_ALIGNMENT
         }
         row.add(card)
-        row.maximumSize = Dimension(Int.MAX_VALUE, row.preferredSize.height)
 
         messageContainer.add(row)
         messageContainer.revalidate()
@@ -924,7 +919,7 @@ class AssistantMessagePanel(private val project: Project, initialText: String) :
             .replace(Regex("`([^`]+)`"), "<code style='font-family:monospace; font-size:13px;'>$1</code>")
             .replace("\n", "<br>")
 
-        pane.text = "<html><body style='color:#a9b7c6; font-family:sans-serif; font-size:14px; line-height:1.6;'>$html</body></html>"
+        pane.text = "<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:14px; line-height:1.5;'>$html</body></html>"
         return pane
     }
 }
@@ -1020,7 +1015,7 @@ class CustomSelectDropdown(initialValue: String) : JLabel() {
     init {
         font = Font("Inter", Font.PLAIN, 13)
         foreground = Color(0xa9, 0xb7, 0xc6)
-        border = EmptyBorder(4, 8, 4, 20)
+        border = EmptyBorder(4, 8, 4, 18)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         setFullText(initialValue)
 
@@ -1051,6 +1046,12 @@ class CustomSelectDropdown(initialValue: String) : JLabel() {
 
     fun getSelectedIndex(): Int = selectedIndex
     fun getSelectedValue(): String = if (selectedIndex >= 0 && selectedIndex < items.size) items[selectedIndex] else ""
+
+    override fun getPreferredSize(): Dimension {
+        val fm = getFontMetrics(font)
+        val textW = fm.stringWidth(fullTextStr).coerceAtMost(140)
+        return Dimension(textW + 28, 24)
+    }
 
     private fun showPopupMenu() {
         if (items.isEmpty()) return
@@ -1236,9 +1237,9 @@ class CustomSendIconButton : JLabel() {
 class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
     init {
         isOpaque = false
-        border = EmptyBorder(6, 12, 6, 12)
+        border = EmptyBorder(4, 10, 4, 10)
         val cleanHtml = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:13px; line-height:1.5;'>$cleanHtml</body></html>")
+        val lbl = JLabel("<html><body style='color:#d4d4d4; font-family:Inter, sans-serif; font-size:14px; line-height:1.4;'>$cleanHtml</body></html>")
         add(lbl, BorderLayout.CENTER)
     }
 
@@ -1247,9 +1248,9 @@ class UserBubbleCard(text: String) : JPanel(BorderLayout()) {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
         g2.color = Color(0x2b, 0x2d, 0x30)
-        g2.fillRoundRect(0, 0, width - 1, height - 1, 10, 10)
+        g2.fillRoundRect(0, 0, width - 1, height - 1, 8, 8)
         g2.color = Color(0x3c, 0x3f, 0x41)
-        g2.drawRoundRect(0, 0, width - 1, height - 1, 10, 10)
+        g2.drawRoundRect(0, 0, width - 1, height - 1, 8, 8)
         g2.dispose()
         super.paintComponent(g)
     }
