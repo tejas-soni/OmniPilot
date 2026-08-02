@@ -3,8 +3,13 @@
   "displayName": "OmniPilot - Bring Your Own Model",
   "description": "OmniPilot AI coding assistant — connect any OpenAI-compatible API to VS Code",
   "version": "1.1.0",
-  "publisher": "omnipilot",
+  "publisher": "TejasSoni",
+  "icon": "resources/icon.png",
   "license": "MIT",
+  "homepage": "https://github.com/tejas-soni/OmniPilot",
+  "bugs": {
+    "url": "https://github.com/tejas-soni/OmniPilot/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/tejas-soni/OmniPilot"
@@ -12,6 +17,16 @@
   "engines": {
     "vscode": "^1.80.0"
   },
+  "keywords": [
+    "ai",
+    "copilot",
+    "chat",
+    "llm",
+    "groq",
+    "openai",
+    "agent",
+    "omnipilot"
+  ],
   "categories": [
     "AI",
     "Programming Languages",
