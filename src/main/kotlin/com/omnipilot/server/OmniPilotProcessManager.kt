@@ -13,8 +13,9 @@ object OmniPilotProcessManager {
         if (process != null && process!!.isAlive && rpcClient != null) {
             return
         }
-        val pluginId = com.intellij.openapi.extensions.PluginId.getId("com.omnipilot")
-        val pluginDescriptor = com.intellij.ide.plugins.PluginManagerCore.getPlugin(pluginId)
+        val pluginId = com.intellij.openapi.extensions.PluginId.getId("com.tejas.omnipilot")
+        val pluginDescriptor = com.intellij.ide.plugins.PluginManager.getInstance().findEnabledPlugin(pluginId)
+            ?: com.intellij.ide.plugins.PluginManager.getInstance().findEnabledPlugin(com.intellij.openapi.extensions.PluginId.getId("com.omnipilot"))
         val pluginRootDir = pluginDescriptor?.pluginPath?.toFile() ?: File(".")
         startServer(pluginRootDir)
     }
