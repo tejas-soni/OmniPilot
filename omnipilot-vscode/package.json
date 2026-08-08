@@ -2,7 +2,7 @@
   "name": "omnipilot-ai",
   "displayName": "OmniPilot AI - Bring Your Own Model",
   "description": "OmniPilot AI coding assistant — connect any OpenAI-compatible API to VS Code",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "TejasSoni",
   "icon": "resources/icon.png",
   "license": "MIT",

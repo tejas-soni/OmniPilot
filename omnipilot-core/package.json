@@ -1,6 +1,6 @@
 {
   "name": "omnipilot-core",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "description": "OmniPilot Language Server Core",
   "main": "dist/index.js",
