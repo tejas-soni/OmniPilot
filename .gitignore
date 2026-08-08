@@ -45,3 +45,8 @@ dist/
 **/dist/
 coverage/
 
+# Reference-only third-party source (do NOT commit)
+cline/
+*.vsix
+**/omnipilot-ai-*.vsix
+

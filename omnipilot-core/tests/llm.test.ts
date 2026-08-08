@@ -1,6 +1,9 @@
+import { jest } from '@jest/globals';
 import { PromptBuilder } from '../src/llm/prompt-builder.js';
+
 import { ProviderStore } from '../src/config/provider-store.js';
-import { LlmClient } from '../src/llm/client.js';
+import { LlmClient, extractFirstJsonObject } from '../src/llm/client.js';
+
 
 describe('LLM & Prompt Unit Tests', () => {
   test('should build READ-ONLY system prompt', () => {
@@ -218,4 +221,43 @@ describe('LLM & Prompt Unit Tests', () => {
 
     expect(onError).toHaveBeenCalledWith('Network stream error');
   });
+
+  test('extractFirstJsonObject returns first balanced object', () => {
+    expect(extractFirstJsonObject('{"a":1}{"b":2}')).toBe('{"a":1}');
+    expect(extractFirstJsonObject('{"a":{"b":"}"}}')).toBe('{"a":{"b":"}"}}');
+    expect(extractFirstJsonObject('no json here')).toBe('no json here');
+    expect(extractFirstJsonObject('prefix {"x":1} suffix')).toBe('{"x":1}');
+  });
+
+  test('LlmClient streamChatCompletionWithTools accumulates tool calls', async () => {
+    const client = new LlmClient();
+    const chunks = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\\"path\\":"}}]}}]}\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"a.txt\\"}"}}]}}]}\n',
+      'data: [DONE]\n'
+    ];
+    let i = 0;
+    const mockStream = {
+      getReader: () => ({
+        read: async () => {
+          if (i < chunks.length) {
+            return { done: false, value: new TextEncoder().encode(chunks[i++]) };
+          }
+          return { done: true, value: undefined };
+        }
+      })
+    };
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, body: mockStream }) as any;
+
+    const result = await client.streamChatCompletionWithTools(
+      { id: 'p1', name: 'OpenAI', baseUrl: 'http://localhost', models: 'm1' },
+      { model: 'm1', messages: [] },
+      { onToken: jest.fn(), onComplete: jest.fn(), onError: jest.fn() }
+    );
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0].function.name).toBe('read_file');
+    expect(result.toolCalls[0].function.arguments).toBe('{"path":"a.txt"}');
+  });
 });
+

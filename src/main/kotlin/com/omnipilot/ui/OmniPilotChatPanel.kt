@@ -205,12 +205,29 @@ class OmniPilotChatPanel(private val project: Project) {
                 } else ""
                 
                 val osInfo = "${System.getProperty("os.name")} ${System.getProperty("os.version")}"
+                // Strict tool-calling rules appended to every mode. Small / free models
+                // (e.g. kimi-k3-free) otherwise emit MULTIPLE parallel tool calls or
+                // concatenate two JSON objects into one call's arguments ("{...}{...}"),
+                // which the server rejects with "Extra data" (HTTP 400). These rules
+                // force one-at-a-time, single-JSON-object tool calls.
+                val toolRules = """
+
+--- TOOL USE RULES (FOLLOW EXACTLY) ---
+1. Call AT MOST ONE tool per response. NEVER issue multiple tool calls at once.
+2. The "arguments" of a tool call must be a SINGLE valid JSON object. NEVER put two JSON objects back-to-back like {"command":"a"}{"command":"b"}.
+3. After each tool result you will get a new turn; decide the NEXT single step then.
+4. Prefer the read_file tool over run_command for reading files. Use run_command only for listing directories or running builds/tests.
+5. For run_command on Windows use simple commands (e.g. `cmd /c dir /b <path>`). Avoid complex PowerShell pipelines that may hang.
+6. NEVER output raw tool-call markup like <|open|>tools or <invoke> as text. Only use the structured tool-calling mechanism.
+7. Work step by step: explore, then plan, then act. Do not try to do everything in one response.
+""".trimIndent()
+
                 val systemPrompt = if (payload.mode == "readonly") {
                     "You are OmniPilot, an AI coding assistant in IntelliJ. You are in READ-ONLY mode. You can read the project, provide suggestions, and output code in markdown blocks. You CANNOT update code directly or run commands. Your host OS is $osInfo.$contextInfo"
                 } else if (payload.mode == "chat") {
-                    "You are OmniPilot, an AI coding assistant in IntelliJ. You are in CHAT mode. You can read/write files and run terminal commands, but writes and commands will require user permission. Always ask for permission implicitly by calling tools. Your host OS is $osInfo.$contextInfo"
+                    "You are OmniPilot, an AI coding assistant in IntelliJ. You are in CHAT mode. You can read/write files and run terminal commands, but writes and commands will require user permission. Always ask for permission implicitly by calling tools. Your host OS is $osInfo.$contextInfo$toolRules"
                 } else {
-                    "You are OmniPilot, an AI coding agent inside IntelliJ. You have full auto-pilot access to tools to read/write files or run terminal commands to solve the user's task. Your host OS is $osInfo.$contextInfo"
+                    "You are OmniPilot, an AI coding agent inside IntelliJ. You have full auto-pilot access to tools to read/write files or run terminal commands to solve the user's task. Your host OS is $osInfo.$contextInfo$toolRules"
                 }
                 
                 val messagesWithSystem = mutableListOf(com.omnipilot.api.ChatMessage(role = "system", content = systemPrompt))

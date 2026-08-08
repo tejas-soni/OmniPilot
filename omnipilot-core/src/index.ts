@@ -4,6 +4,10 @@ import { HistoryManager } from './history/manager.js';
 import { ProviderStore } from './config/provider-store.js';
 import { LlmClient } from './llm/client.js';
 import { PromptBuilder } from './llm/prompt-builder.js';
+import { ToolRegistry } from './agent/tool-registry.js';
+import { ChatMessage } from './llm/models.js';
+
+
 
 const server = new RpcServer(process.stdin, process.stdout);
 const historyManager = new HistoryManager();
@@ -100,37 +104,124 @@ server.registerHandler(RPC_METHODS.CHAT_SEND, async (params: {
     editorContext: params.editorContext
   });
 
-  const normalizedMessages = PromptBuilder.normalizeMessagesForClaude(params.messages || [], systemPrompt);
+  const normalizedMessages: ChatMessage[] = PromptBuilder.normalizeMessagesForClaude(params.messages || [], systemPrompt);
 
-  const fullResponse = await llmClient.streamChatCompletion(
-    provider,
-    {
-      model: params.model,
-      messages: normalizedMessages
+  const mode = (params.mode || 'CHAT').toString().toUpperCase();
+  const isAgent = mode === 'AGENT';
+  const tools = isAgent ? ToolRegistry.getAgentTools() : undefined;
+
+  const callbacks = {
+    onToken: (token: string) => {
+      server.sendNotification(RPC_METHODS.NOTIFY_CHAT_TOKEN, {
+        sessionId: params.sessionId,
+        token
+      });
     },
-    {
-      onToken: (token: string) => {
-        server.sendNotification(RPC_METHODS.NOTIFY_CHAT_TOKEN, {
-          sessionId: params.sessionId,
-          token
-        });
-      },
-      onComplete: () => {
-        server.sendNotification(RPC_METHODS.NOTIFY_CHAT_COMPLETE, {
-          sessionId: params.sessionId
-        });
-      },
-      onError: (errMsg: string) => {
-        server.sendNotification(RPC_METHODS.NOTIFY_CHAT_ERROR, {
-          sessionId: params.sessionId,
-          message: errMsg
-        });
-      }
+    onComplete: () => { /* completion notification sent after the agent loop */ },
+    onError: (errMsg: string) => {
+      server.sendNotification(RPC_METHODS.NOTIFY_CHAT_ERROR, {
+        sessionId: params.sessionId,
+        message: errMsg
+      });
     }
-  );
+  };
+
+  const MAX_AGENT_TURNS = 10;
+  const conversation: ChatMessage[] = [...normalizedMessages];
+  let fullResponse = '';
+
+  for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
+    const result = await llmClient.streamChatCompletionWithTools(
+      provider,
+      {
+        model: params.model,
+        messages: conversation,
+        ...(tools ? { tools } : {})
+      },
+      callbacks
+    );
+
+    fullResponse += result.text;
+
+    // No tool calls (or not in agent mode) -> we are done.
+    if (!isAgent || result.toolCalls.length === 0) {
+      break;
+    }
+
+    // Append the assistant message containing the tool calls.
+    const assistantMsg: ChatMessage = {
+      role: 'assistant',
+      content: result.text || null,
+      tool_calls: result.toolCalls
+    };
+    conversation.push(assistantMsg);
+
+    // Execute each tool call on the client and append the tool results.
+    for (const call of result.toolCalls) {
+      const toolName = call.function.name;
+      const toolArgs = call.function.arguments;
+
+      // Permission gate for tools that touch the workspace / shell.
+      if (toolName === 'read_file' || toolName === 'write_file' || toolName === 'run_command') {
+
+        try {
+          const permission = await server.sendRequest<any>(RPC_METHODS.REQ_PERMISSION, {
+            sessionId: params.sessionId,
+            tool: toolName,
+            arguments: toolArgs
+          });
+          const decision = typeof permission === 'string' ? permission : permission?.decision;
+          if (decision === 'DENY' || decision === 'deny' || permission === false) {
+            conversation.push({
+              role: 'tool',
+              name: toolName,
+              content: 'Error: User denied permission to execute this tool.',
+              tool_call_id: call.id
+            });
+            continue;
+          }
+        } catch {
+          // If the client does not support permission requests, fail closed.
+          conversation.push({
+            role: 'tool',
+            name: toolName,
+            content: 'Error: Permission request not supported by client.',
+            tool_call_id: call.id
+          });
+          continue;
+        }
+      }
+
+      let toolResult: string;
+      try {
+        const res = await server.sendRequest<any>(RPC_METHODS.REQ_CHAT_TOOL_CALL, {
+          sessionId: params.sessionId,
+          id: call.id,
+          name: toolName,
+          arguments: toolArgs
+        });
+        toolResult = typeof res === 'string' ? res : (res?.result ?? JSON.stringify(res));
+      } catch (e: any) {
+        toolResult = `Error executing tool ${toolName}: ${e?.message ?? String(e)}`;
+      }
+
+      conversation.push({
+        role: 'tool',
+        name: toolName,
+        content: toolResult,
+        tool_call_id: call.id
+      });
+    }
+    // Loop continues: invoke the model again with the tool results.
+  }
+
+  server.sendNotification(RPC_METHODS.NOTIFY_CHAT_COMPLETE, {
+    sessionId: params.sessionId
+  });
 
   return { status: 'ok', responseText: fullResponse };
 });
+
 
 server.start();
 

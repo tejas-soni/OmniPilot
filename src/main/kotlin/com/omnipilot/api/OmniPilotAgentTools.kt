@@ -134,81 +134,78 @@ object OmniPilotAgentTools {
 
                 "run_command" -> {
                     val command = args["command"]?.jsonPrimitive?.content ?: return "Error: Missing command argument."
-                    val isWindows = System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true)
-
-                    val tempOut = File.createTempFile("omnipilot_out_", ".txt")
-                    val tempDone = File(tempOut.absolutePath + ".done")
-
-                    try {
-                        // Build OS-appropriate wrapped command
-                        val wrappedCommand: Array<String> = if (isWindows) {
-                            arrayOf(
-                                "powershell.exe", "-NoProfile", "-Command",
-                                "& { $command } | Tee-Object -FilePath '${tempOut.absolutePath}'; Set-Content -Path '${tempDone.absolutePath}' -Value 'DONE'"
-                            )
-                        } else {
-                            arrayOf(
-                                "sh", "-c",
-                                "{ $command ; } 2>&1 | tee '${tempOut.absolutePath}'; echo DONE > '${tempDone.absolutePath}'"
-                            )
-                        }
-
-                        // Use CompletableFuture + invokeLater to avoid invokeAndWait deadlock risk
-                        val widgetReady = CompletableFuture<Unit>()
-                        com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
-                            try {
-                                val terminalViewClass = try {
-                                    Class.forName("org.jetbrains.plugins.terminal.TerminalToolWindowManager")
-                                } catch (e: ClassNotFoundException) {
-                                    Class.forName("org.jetbrains.plugins.terminal.TerminalView")
-                                }
-                                val getInstanceMethod = terminalViewClass.getMethod("getInstance", Project::class.java)
-                                val terminalInstance = getInstanceMethod.invoke(null, project)
-                                val createWidgetMethod = terminalViewClass.getMethod("createLocalShellWidget", String::class.java, String::class.java)
-                                val widget = createWidgetMethod.invoke(terminalInstance, basePath, "OmniPilot")
-                                val executeCommandMethod = widget.javaClass.getMethod("executeCommand", String::class.java)
-                                executeCommandMethod.invoke(widget, wrappedCommand.joinToString(" ") { if (it.contains(" ")) "\"$it\"" else it })
-                                widgetReady.complete(Unit)
-                            } catch (e: Exception) {
-                                widgetReady.completeExceptionally(e)
-                            }
-                        }
-
-                        // Wait for the widget to start (max 10s)
-                        widgetReady.get(10, TimeUnit.SECONDS)
-
-                        // Poll for done file (max 60 seconds)
-                        var attempts = 0
-                        while (!tempDone.exists() && attempts < 120) {
-                            Thread.sleep(500)
-                            attempts++
-                        }
-
-                        if (!tempDone.exists()) {
-                            return "Error: Command timed out after 60 seconds."
-                        }
-
-                        val bytes = tempOut.readBytes()
-                        val result = when {
-                            bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() ->
-                                String(bytes, Charsets.UTF_16LE)
-                            bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() ->
-                                String(bytes, Charsets.UTF_16BE)
-                            else -> String(bytes, Charsets.UTF_8)
-                        }
-
-                        if (result.isBlank()) "Command executed successfully (no output)." else result
-                    } finally {
-                        // Always clean up temp files even on exception
-                        tempOut.delete()
-                        tempDone.delete()
-                    }
+                    runShellCommand(command, basePath)
                 }
 
                 else -> "Error: Unknown tool $name."
             }
         } catch (e: Exception) {
             return "Error executing tool: ${e.message}"
+        }
+    }
+
+    /**
+     * Runs a shell command directly via a child process (Cline-style) instead of
+     * spawning an IDE terminal widget. The old approach created a NEW terminal per
+     * command and polled a ".done" file; after a few commands the terminals piled up
+     * and the .done file was never written, so the agent stalled on a 60s timeout.
+     *
+     * This implementation:
+     *  - starts the process with ProcessBuilder in the project directory
+     *  - drains stdout and stderr on separate threads (prevents pipe-buffer deadlock)
+     *  - waits up to [timeoutSeconds] and forcibly destroys the process on timeout
+     */
+    private fun runShellCommand(command: String, basePath: String, timeoutSeconds: Long = 120): String {
+        val isWindows = System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true)
+        val pb = if (isWindows) {
+            ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command)
+        } else {
+            ProcessBuilder("sh", "-c", command)
+        }
+        pb.directory(File(basePath))
+        pb.redirectErrorStream(true)
+
+        val process = try {
+            pb.start()
+        } catch (e: Exception) {
+            return "Error: Failed to start command: ${e.message}"
+        }
+
+        // Drain the combined output on a separate thread so a full pipe buffer
+        // never blocks the child process.
+        val output = StringBuilder()
+        val readerThread = Thread {
+            try {
+                process.inputStream.bufferedReader(Charsets.UTF_8).forEachLine { line ->
+                    synchronized(output) { output.appendLine(line) }
+                }
+            } catch (_: Exception) { /* stream closed on destroy */ }
+        }
+        readerThread.isDaemon = true
+        readerThread.start()
+
+        val finished = try {
+            process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+
+        if (!finished) {
+            process.destroyForcibly()
+            try { process.waitFor(5, TimeUnit.SECONDS) } catch (_: Exception) {}
+            return "Error: Command timed out after $timeoutSeconds seconds and was terminated.\n\nPartial output:\n${synchronized(output) { output.toString() }.trim()}"
+        }
+
+        readerThread.join(2000)
+        val exitCode = process.exitValue()
+        val result = synchronized(output) { output.toString() }.trim()
+
+        return when {
+            result.isEmpty() && exitCode == 0 -> "Command executed successfully (no output)."
+            result.isEmpty() -> "Command finished with exit code $exitCode (no output)."
+            exitCode == 0 -> result
+            else -> "$result\n\n(exit code: $exitCode)"
         }
     }
 }

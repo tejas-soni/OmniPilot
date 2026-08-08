@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as child_process from 'child_process';
 import { OmniPilotRpcClient } from './rpc-client';
+
 
 let client: OmniPilotRpcClient | null = null;
 let statusBarItem: vscode.StatusBarItem;
@@ -65,7 +67,17 @@ export function activate(context: vscode.ExtensionContext) {
     chatPanel?.webview.postMessage({ type: 'error', message: params.message });
   });
 
+  // 7. Server → client requests (agent tool execution + permission)
+  client.onRequest('chat/toolCall', async (params: any) => {
+    return await executeToolCall(params);
+  });
+  client.onRequest('chat/permissionRequest', async (params: any) => {
+    return await requestPermission(params);
+  });
+
+
   updateStatusBar();
+
 
   context.subscriptions.push({ dispose: () => { client?.stop(); } });
 }
@@ -219,9 +231,117 @@ function openSettingsPanel(context: vscode.ExtensionContext): void {
   settingsPanel.onDidDispose(() => { settingsPanel = undefined; });
 }
 
+// ── Agent tool execution ──────────────────────────────────────────────────
+
+function resolveWorkspacePath(p: string): string {
+  if (path.isAbsolute(p)) {
+    return p;
+  }
+  const folders = vscode.workspace.workspaceFolders;
+  const base = folders && folders.length > 0 ? folders[0].uri.fsPath : process.cwd();
+  return path.join(base, p);
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + `\n... (truncated, ${s.length} total chars)` : s;
+}
+
+async function executeToolCall(params: any): Promise<{ result: string }> {
+  const name: string = params?.name ?? '';
+  let args: any = {};
+  try {
+    args = typeof params?.arguments === 'string' ? JSON.parse(params.arguments) : (params?.arguments ?? {});
+  } catch (e: any) {
+    return { result: `Error: could not parse tool arguments: ${e?.message ?? String(e)}` };
+  }
+
+  try {
+    switch (name) {
+      case 'read_file': {
+        const filePath = resolveWorkspacePath(String(args.filePath ?? args.path ?? ''));
+        const content = fs.readFileSync(filePath, 'utf8');
+        return { result: truncate(content, 20000) };
+      }
+      case 'write_file': {
+        const filePath = resolveWorkspacePath(String(args.filePath ?? args.path ?? ''));
+
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, String(args.content ?? ''), 'utf8');
+        return { result: `File written: ${filePath}` };
+      }
+      case 'run_command': {
+        const command = String(args.command ?? '');
+        const output = await runShellCommand(command);
+        return { result: truncate(output, 20000) };
+      }
+      default:
+        return { result: `Error: unknown tool '${name}'` };
+    }
+  } catch (e: any) {
+    return { result: `Error executing ${name}: ${e?.message ?? String(e)}` };
+  }
+}
+
+function runShellCommand(command: string): Promise<string> {
+  const folders = vscode.workspace.workspaceFolders;
+  const cwd = folders && folders.length > 0 ? folders[0].uri.fsPath : process.cwd();
+  return new Promise((resolve) => {
+    child_process.exec(
+      command,
+      { timeout: 60000, maxBuffer: 1024 * 1024, windowsHide: true, cwd },
+
+      (error, stdout, stderr) => {
+        let out = '';
+        if (stdout) out += stdout;
+        if (stderr) out += (out ? '\n' : '') + stderr;
+        if (error && !out) {
+          out = `Command failed (exit ${error.code ?? '?'}): ${error.message}`;
+        } else if (error) {
+          out += `\n(exit code ${error.code ?? '?'})`;
+        }
+        resolve(out || '(no output)');
+      }
+    );
+  });
+}
+
+async function requestPermission(params: any): Promise<{ decision: string }> {
+  const tool: string = params?.tool ?? 'tool';
+  let args: any = {};
+  try {
+    args = typeof params?.arguments === 'string' ? JSON.parse(params.arguments) : (params?.arguments ?? {});
+  } catch { /* ignore */ }
+
+  const autoApprove = vscode.workspace.getConfiguration('omnipilot').get<boolean>('autoApproveAgentMode') ?? false;
+  if (autoApprove) {
+    return { decision: 'ALLOW' };
+  }
+
+  let detail = '';
+  if (tool === 'write_file') {
+    detail = `Write to file:\n${args.filePath ?? args.path ?? ''}`;
+  } else if (tool === 'read_file') {
+    detail = `Read file:\n${args.filePath ?? args.path ?? ''}`;
+  } else if (tool === 'run_command') {
+
+    detail = `Run command:\n${args.command ?? ''}`;
+  } else {
+    detail = JSON.stringify(args);
+  }
+
+  const choice = await vscode.window.showWarningMessage(
+    `OmniPilot Agent wants to: ${tool}`,
+    { modal: true, detail },
+    'Allow',
+    'Deny'
+  );
+  return { decision: choice === 'Allow' ? 'ALLOW' : 'DENY' };
+}
+
 // ── Chat Webview Provider ─────────────────────────────────────────────────
 
 class OmniPilotChatProvider implements vscode.WebviewViewProvider {
+
   constructor(private readonly extensionUri: vscode.Uri) {}
 
   resolveWebviewView(

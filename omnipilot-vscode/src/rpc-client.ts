@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 export type NotificationHandler = (params: any) => void;
+export type RequestHandler = (params: any) => Promise<any> | any;
 
 export class OmniPilotRpcClient {
   private proc: child_process.ChildProcess | null = null;
@@ -10,7 +11,9 @@ export class OmniPilotRpcClient {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
   private notifHandlers = new Map<string, NotificationHandler[]>();
+  private reqHandlers = new Map<string, RequestHandler>();
   private serverPath: string;
+
 
   constructor(extensionUri: vscode.Uri) {
     this.serverPath = path.join(
@@ -73,12 +76,39 @@ export class OmniPilotRpcClient {
       return;
     }
 
+    // Request from server (has both method and id) -> dispatch and respond
+    if (msg.method && msg.id !== undefined) {
+      const handler = this.reqHandlers.get(msg.method);
+      if (!handler) {
+        this.send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          error: { code: -32601, message: `Method not found: ${msg.method}` }
+        });
+        return;
+      }
+      Promise.resolve()
+        .then(() => handler(msg.params))
+        .then(result => this.send({ jsonrpc: '2.0', id: msg.id, result }))
+        .catch(err => this.send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          error: { code: -32603, message: err?.message ?? 'Internal error' }
+        }));
+      return;
+    }
+
     // Notification from server
     if (msg.method && msg.id === undefined) {
       const handlers = this.notifHandlers.get(msg.method) ?? [];
       handlers.forEach(h => h(msg.params));
     }
   }
+
+  public onRequest(method: string, handler: RequestHandler): void {
+    this.reqHandlers.set(method, handler);
+  }
+
 
   public sendRequest<T = any>(method: string, params?: any): Promise<T> {
     return new Promise((resolve, reject) => {
